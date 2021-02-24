@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -106,6 +107,28 @@ func (ns *server) publishISCSIVolume(ctx context.Context, req *csi.NodePublishVo
 	}
 
 	return nil
+}
+
+func (ns *server) iscsiNodeExpandVolume(ctx context.Context, req *csi.NodeExpandVolumeRequest) (*csi.NodeExpandVolumeResponse, error) {
+	device, err := filepath.EvalSymlinks(path.Join(req.StagingTargetPath, "device"))
+	if err != nil {
+		return nil, status.Errorf(codes.Unavailable, "device unaccessible at StagingTargetPath=", path.Join(req.StagingTargetPath, "device"))
+	}
+
+	if !strings.HasPrefix(device, "/dev/") {
+		return nil, status.Errorf(codes.Unavailable, "Invalid device read: ", device)
+	}
+
+	device = strings.TrimPrefix(device, "/dev/")
+
+	rescanPath := path.Join("/sys", "class", "block", device, "device", "rescan")
+	if err = ioutil.WriteFile(rescanPath, []byte("- - -"), 0); err != nil {
+		return nil, status.Errorf(codes.Unavailable, "Failed issuing rescan to %s: %+v", rescanPath, err)
+	}
+
+	// TODO: handle mounted filesystem
+
+	return &csi.NodeExpandVolumeResponse{}, nil
 }
 
 func iscsiAddNode(ctx context.Context, iscsi *volumecontext.ISCSI) (err error) {

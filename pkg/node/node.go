@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path"
+	"strings"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -111,6 +112,13 @@ func (ns *server) NodeGetCapabilities(context.Context, *csi.NodeGetCapabilitiesR
 					},
 				},
 			},
+			{
+				Type: &csi.NodeServiceCapability_Rpc{
+					Rpc: &csi.NodeServiceCapability_RPC{
+						Type: csi.NodeServiceCapability_RPC_EXPAND_VOLUME,
+					},
+				},
+			},
 		},
 	}, nil
 }
@@ -121,6 +129,14 @@ func (ns *server) NodeGetInfo(context.Context, *csi.NodeGetInfoRequest) (*csi.No
 	return &csi.NodeGetInfoResponse{
 		NodeId: hostname,
 	}, nil
+}
+
+func (ns *server) NodeExpandVolume(ctx context.Context, req *csi.NodeExpandVolumeRequest) (*csi.NodeExpandVolumeResponse, error) {
+	if strings.HasPrefix(req.VolumeId, "iscsi:") {
+		return ns.iscsiNodeExpandVolume(ctx, req)
+	}
+
+	return nil, status.Errorf(codes.InvalidArgument, "Invalid volume received: %+v", req.VolumeId)
 }
 
 // New returns csi.NodeServer
