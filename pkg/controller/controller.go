@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
-	"strings"
+	"net/url"
 
 	"google.golang.org/grpc/codes"
 	status "google.golang.org/grpc/status"
@@ -90,15 +90,28 @@ func (cs *server) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequest
 }
 
 func (cs *server) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequest) (*csi.DeleteVolumeResponse, error) {
-	var err error
+	cl, err := newFreenasOapiClient(cs.freenas)
+	if err != nil {
+		return nil, status.Error(codes.Unavailable, "creating FreenasOapi client failed")
+	}
 
-	switch {
-	case strings.HasPrefix(req.VolumeId, "nfs:"):
-		err = cs.deleteNFSVolume(ctx, req)
-	case strings.HasPrefix(req.VolumeId, "iscsi:"):
-		err = cs.deleteISCSIVolume(ctx, req)
-	default:
-		err = status.Error(codes.FailedPrecondition, "Invalid volume id requested")
+	var di *datasetInfo
+	if di, err = cs.getDataset(ctx, cl, req.VolumeId); err != nil {
+		return nil, status.Errorf(codes.Unavailable, "Error querying dataset: %+v", err)
+	}
+	if di != nil {
+		switch di.Type {
+		case "FILESYSTEM":
+			err = cs.deleteNFSVolume(ctx, cl, di)
+		case "VOLUME":
+			err = cs.deleteISCSIVolume(ctx, cl, di)
+		default:
+			err = status.Errorf(codes.InvalidArgument, "Received invalid response from NAS: %+v", di)
+		}
+
+		if err == nil {
+			err = cs.removeDataset(ctx, cl, di.ID)
+		}
 	}
 
 	if err != nil {
@@ -110,24 +123,30 @@ func (cs *server) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequest
 
 // ValidateVolumeCapabilities validates request.
 func (cs *server) ValidateVolumeCapabilities(ctx context.Context, req *csi.ValidateVolumeCapabilitiesRequest) (*csi.ValidateVolumeCapabilitiesResponse, error) {
-	iscsi := strings.HasPrefix(req.VolumeId, "iscsi:")
-	if !iscsi {
-		if !strings.HasPrefix(req.VolumeId, "nfs:") {
-			return nil, status.Error(codes.InvalidArgument, "Invalid volume id requested")
-		}
+	cl, err := newFreenasOapiClient(cs.freenas)
+	if err != nil {
+		return nil, status.Error(codes.Unavailable, "creating FreenasOapi client failed")
+	}
+
+	di, err := cs.getDataset(ctx, cl, req.VolumeId)
+	if err != nil {
+		return nil, err
+	}
+	if di == nil {
+		return nil, status.Errorf(codes.InvalidArgument, "Volume does not exist")
 	}
 
 	for _, cap := range req.VolumeCapabilities {
 		switch {
 		case cap.GetBlock() != nil:
-			if !iscsi {
+			if di.Type != "VOLUME" {
 				return &csi.ValidateVolumeCapabilitiesResponse{}, nil
 			}
 		case cap.GetMount() != nil:
 			switch cap.GetAccessMode().GetMode() {
 			case csi.VolumeCapability_AccessMode_SINGLE_NODE_WRITER, csi.VolumeCapability_AccessMode_SINGLE_NODE_READER_ONLY:
 			default:
-				if iscsi { // multi-node access with ISCSI is not allowed
+				if di.Type == "VOLUME" { // multi-node access with ISCSI is not allowed
 					return &csi.ValidateVolumeCapabilitiesResponse{}, nil
 				}
 			}
@@ -143,14 +162,57 @@ func (cs *server) ValidateVolumeCapabilities(ctx context.Context, req *csi.Valid
 
 // Expand volume
 func (cs *server) ControllerExpandVolume(ctx context.Context, req *csi.ControllerExpandVolumeRequest) (*csi.ControllerExpandVolumeResponse, error) {
-	switch {
-	case strings.HasPrefix(req.VolumeId, "nfs:"):
-		return cs.expandNFSVolume(ctx, req)
-	case strings.HasPrefix(req.VolumeId, "iscsi:"):
-		return cs.expandISCSIVolume(ctx, req)
-	default:
-		return nil, status.Error(codes.FailedPrecondition, "Invalid volume id requested")
+	cl, err := newFreenasOapiClient(cs.freenas)
+	if err != nil {
+		return nil, status.Error(codes.Unavailable, "creating FreenasOapi client failed")
 	}
+
+	di, err := cs.getDataset(ctx, cl, req.VolumeId)
+	if err != nil {
+		return nil, err
+	}
+	if di == nil {
+		return nil, status.Errorf(codes.InvalidArgument, "Volume does not exist")
+	}
+
+	var capacity int64
+	putrequest := FreenasOapi.PutPoolDatasetIdIdJSONRequestBody{}
+	nodeExpansionRequired := false
+
+	switch di.Type {
+	case "FILESYSTEM":
+		refreservation := int(req.CapacityRange.GetRequiredBytes())
+		refquota := int(req.CapacityRange.GetLimitBytes())
+
+		if refreservation == 0 {
+			refreservation = refquota
+		} else if refquota == 0 {
+			refquota = refreservation
+		}
+
+		putrequest.Refreservation = &refreservation
+		putrequest.Refquota = &refquota
+		capacity = int64(refreservation)
+
+	case "VOLUME":
+		volsize := int(req.CapacityRange.GetLimitBytes())
+		if volsize == 0 {
+			volsize = int(req.CapacityRange.GetRequiredBytes())
+		}
+
+		putrequest.Volsize = &volsize
+		capacity = int64(volsize)
+		nodeExpansionRequired = true
+
+	default:
+		return nil, status.Errorf(codes.InvalidArgument, "Invalid dataset received from NAS: %+v", di)
+	}
+
+	if _, err = handleNasResponse(cl.PutPoolDatasetIdId(ctx, di.ID, putrequest)); err != nil {
+		return nil, err
+	}
+
+	return &csi.ControllerExpandVolumeResponse{CapacityBytes: capacity, NodeExpansionRequired: nodeExpansionRequired}, nil
 }
 
 // New returns a new csi.ControllerServer
@@ -178,6 +240,62 @@ func newFreenasOapiClient(cfg *config.FreeNAS) (*FreenasOapi.Client, error) {
 	}
 
 	return FreenasOapi.NewClient(cfg.APIUrl, opts...)
+}
+
+func freenasOapiFilter(key, value string) func(ctx context.Context, req *http.Request) error {
+	return func(ctx context.Context, req *http.Request) error {
+		q := req.URL.Query()
+		q.Add(key, value)
+		req.URL.RawQuery = q.Encode()
+
+		return nil
+	}
+}
+
+type datasetInfo struct {
+	ID       string
+	Type     string
+	Comments string
+}
+
+func (cs *server) getDataset(ctx context.Context, cl *FreenasOapi.Client, dataset string) (*datasetInfo, error) {
+	resp, err := cl.GetPoolDatasetIdId(ctx, []interface{}{url.PathEscape(dataset)}, &FreenasOapi.GetPoolDatasetIdIdParams{})
+	if err != nil {
+		return nil, status.Errorf(codes.Unavailable, "Error during call to Nas: %+v", err)
+	}
+
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return nil, status.Errorf(codes.Unavailable, "Error reading response body: %+v", err)
+	}
+
+	switch resp.StatusCode {
+	case 200:
+		var result struct {
+			ID       string `json:"id"`
+			Type     string `json:"type"`
+			Comments *struct {
+				Rawvalue string `json:"rawvalue"`
+			} `json:"comments"`
+		}
+		if err = json.Unmarshal(body, &result); err != nil {
+			return nil, status.Errorf(codes.Unavailable, "Error parsing dataset from NAS: %+v", err)
+		}
+
+		di := &datasetInfo{
+			ID:   result.ID,
+			Type: result.Type,
+		}
+		if result.Comments != nil {
+			di.Comments = result.Comments.Rawvalue
+		}
+
+		return di, nil
+	case 404:
+		return nil, nil
+	}
+
+	return nil, status.Errorf(codes.Unavailable, "Unexpected result from Nas: %s", string(body))
 }
 
 // removeDataset removes or renames given dataset

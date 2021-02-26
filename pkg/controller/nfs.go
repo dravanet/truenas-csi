@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/google/uuid"
 	"google.golang.org/grpc/codes"
 	status "google.golang.org/grpc/status"
 
@@ -18,62 +19,90 @@ import (
 )
 
 func (cs *server) createNFSVolume(ctx context.Context, req *csi.CreateVolumeRequest) (resp *csi.CreateVolumeResponse, err error) {
-	nfs := cs.findNFSconfiguration(req)
-
-	if nfs == nil {
-		return nil, status.Error(codes.InvalidArgument, "could not find a suitable nfs configuration")
-	}
-
 	cl, err := newFreenasOapiClient(cs.freenas)
 	if err != nil {
 		return nil, status.Error(codes.Unavailable, "creating FreenasOapi client failed")
 	}
 
-	refreservation := int(req.CapacityRange.GetRequiredBytes())
-	refquota := int(req.CapacityRange.GetLimitBytes())
-
-	if refreservation == 0 {
-		refreservation = refquota
-	} else if refquota == 0 {
-		refquota = refreservation
+	nfs := cs.findNFSconfiguration(req)
+	if nfs == nil {
+		return nil, status.Error(codes.InvalidArgument, "could not find a suitable nfs configuration")
 	}
 
-	dataset := path.Join(nfs.RootDataset, req.Name)
+	var dataset string
+	var paths []string
 
-	if _, err = handleNasResponse(cl.PostPoolDataset(ctx, FreenasOapi.PostPoolDatasetJSONRequestBody{
-		Name:           &dataset,
-		Refreservation: &refreservation,
-		Refquota:       &refquota,
-		Comments:       &req.Name,
-	})); err != nil {
+	share, err := cs.getNFSShareByComment(ctx, cl, req.Name)
+	if err != nil {
 		return nil, err
 	}
 
-	defer func() {
-		if err != nil {
-			recursive := true
-			cl.DeletePoolDatasetIdId(ctx, dataset, FreenasOapi.DeletePoolDatasetIdIdJSONRequestBody{
-				Recursive: &recursive,
-			})
+	if share == nil {
+		dataset = path.Join(nfs.RootDataset, uuid.NewString())
+
+		refreservation := int(req.CapacityRange.GetRequiredBytes())
+		refquota := int(req.CapacityRange.GetLimitBytes())
+
+		if refreservation == 0 {
+			refreservation = refquota
+		} else if refquota == 0 {
+			refquota = refreservation
 		}
-	}()
 
-	enabled := true
-	paths := []string{path.Join("/mnt", dataset)}
-	maprootuser := "root"
-	maprootgroup := "wheel"
+		if _, err = handleNasResponse(cl.PostPoolDataset(ctx, FreenasOapi.PostPoolDatasetJSONRequestBody{
+			Name:           &dataset,
+			Refreservation: &refreservation,
+			Refquota:       &refquota,
+			Comments:       &req.Name,
+		})); err != nil {
+			return nil, err
+		}
 
-	var nfsID int
-	if nfsID, err = handleNasCreateResponse(cl.PostSharingNfs(ctx, FreenasOapi.PostSharingNfsJSONRequestBody{
-		Enabled:      &enabled,
-		Paths:        &paths,
-		Comment:      &req.Name,
-		Hosts:        &nfs.AllowedHosts,
-		Networks:     &nfs.AllowedNetworks,
-		MaprootUser:  &maprootuser,
-		MaprootGroup: &maprootgroup,
-	})); err != nil {
-		return nil, err
+		defer func() {
+			if err != nil {
+				recursive := true
+				cl.DeletePoolDatasetIdId(ctx, dataset, FreenasOapi.DeletePoolDatasetIdIdJSONRequestBody{
+					Recursive: &recursive,
+				})
+			}
+		}()
+
+		enabled := true
+		paths = []string{path.Join("/mnt", dataset)}
+		maprootuser := "root"
+		maprootgroup := "wheel"
+
+		var nfsID int
+		if nfsID, err = handleNasCreateResponse(cl.PostSharingNfs(ctx, FreenasOapi.PostSharingNfsJSONRequestBody{
+			Enabled:      &enabled,
+			Paths:        &paths,
+			Comment:      &req.Name,
+			Hosts:        &nfs.AllowedHosts,
+			Networks:     &nfs.AllowedNetworks,
+			MaprootUser:  &maprootuser,
+			MaprootGroup: &maprootgroup,
+		})); err != nil {
+			return nil, err
+		}
+		defer func() {
+			if err != nil {
+				cl.DeleteSharingNfsIdId(context.Background(), nfsID)
+			}
+		}()
+
+		comments := fmt.Sprintf("nfs:%d", nfsID)
+		if _, err = handleNasResponse(cl.PutPoolDatasetIdId(ctx, dataset, FreenasOapi.PutPoolDatasetIdIdJSONRequestBody{
+			Comments: &comments,
+		})); err != nil {
+			return nil, err
+		}
+	} else {
+		if share.Paths == nil || len(*share.Paths) != 1 {
+			return nil, status.Errorf(codes.Unavailable, "Unexpected data returned from NAS, invalid paths: %+v", share)
+		}
+
+		paths = *share.Paths
+		dataset = strings.TrimPrefix(paths[0], "/mnt/")
 	}
 
 	volumeContext := &volumecontext.VolumeContext{
@@ -86,7 +115,7 @@ func (cs *server) createNFSVolume(ctx context.Context, req *csi.CreateVolumeRequ
 
 	return &csi.CreateVolumeResponse{
 		Volume: &csi.Volume{
-			VolumeId: fmt.Sprintf("nfs:%d", nfsID),
+			VolumeId: dataset,
 			VolumeContext: map[string]string{
 				"b64": serialized,
 			},
@@ -94,84 +123,42 @@ func (cs *server) createNFSVolume(ctx context.Context, req *csi.CreateVolumeRequ
 	}, nil
 }
 
-func (cs *server) deleteNFSVolume(ctx context.Context, req *csi.DeleteVolumeRequest) error {
-	nfsID, err := strconv.ParseInt(strings.TrimPrefix(req.VolumeId, "nfs:"), 10, 32)
+func (cs *server) deleteNFSVolume(ctx context.Context, cl *FreenasOapi.Client, di *datasetInfo) error {
+	nfsID, err := strconv.ParseInt(strings.TrimPrefix(di.Comments, "nfs:"), 10, 32)
 	if err != nil {
 		return status.Errorf(codes.InvalidArgument, "Failed parsing nfsID: %+v", err)
-	}
-
-	cl, err := newFreenasOapiClient(cs.freenas)
-	if err != nil {
-		return status.Error(codes.Unavailable, "creating FreenasOapi client failed")
-	}
-
-	var nfsbody []byte
-	if nfsbody, err = handleNasResponse(cl.GetSharingNfsIdId(ctx, []interface{}{nfsID}, &FreenasOapi.GetSharingNfsIdIdParams{})); err != nil {
-		return err
-	}
-
-	var result struct {
-		Paths []string `json:"paths"`
-	}
-	if err = json.Unmarshal(nfsbody, &result); err != nil {
-		return status.Errorf(codes.InvalidArgument, "Failed parsing NAS response: %+v", err)
-	}
-	if len(result.Paths) != 1 {
-		return status.Errorf(codes.InvalidArgument, "Unexpected response received for NFS share: id=%d result=%+v", nfsID, result)
 	}
 
 	if _, err = handleNasResponse(cl.DeleteSharingNfsIdId(ctx, int(nfsID))); err != nil {
 		return err
 	}
 
-	return cs.removeDataset(ctx, cl, result.Paths[0])
+	return nil
 }
 
-func (cs *server) expandNFSVolume(ctx context.Context, req *csi.ControllerExpandVolumeRequest) (*csi.ControllerExpandVolumeResponse, error) {
-	nfsID, err := strconv.ParseInt(strings.TrimPrefix(req.VolumeId, "nfs:"), 10, 32)
-	if err != nil {
-		return nil, status.Errorf(codes.InvalidArgument, "Failed parsing nfsID: %+v", err)
+func (cs *server) getNFSShareByComment(ctx context.Context, cl *FreenasOapi.Client, comment string) (share *FreenasOapi.PostSharingNfsJSONBody, err error) {
+	var nfsshareresp []byte
+	if nfsshareresp, err = handleNasResponse(cl.GetSharingNfs(ctx, &FreenasOapi.GetSharingNfsParams{}, freenasOapiFilter("comment", comment))); err != nil {
+		return
+	}
+	var shares []FreenasOapi.PostSharingNfsJSONBody
+	if err = json.Unmarshal(nfsshareresp, &shares); err != nil {
+		return nil, status.Error(codes.Unavailable, "Error parsing NAS response")
+	}
+	for _, share := range shares {
+		if share.Comment == nil || *share.Comment != comment {
+			return nil, status.Errorf(codes.Unavailable, "Unexpected data returned from NAS, seems like filtering does not work: %+v", shares)
+		}
+	}
+	if len(shares) > 1 {
+		return nil, status.Errorf(codes.Unavailable, "Unexpected data returned from NAS, multiple items have same comment: %+v", shares)
 	}
 
-	refreservation := int(req.CapacityRange.GetRequiredBytes())
-	refquota := int(req.CapacityRange.GetLimitBytes())
-
-	if refreservation == 0 {
-		refreservation = refquota
-	} else if refquota == 0 {
-		refquota = refreservation
+	if len(shares) == 1 {
+		share = &shares[0]
 	}
 
-	cl, err := newFreenasOapiClient(cs.freenas)
-	if err != nil {
-		return nil, status.Error(codes.Unavailable, "creating FreenasOapi client failed")
-	}
-
-	var nfsbody []byte
-	if nfsbody, err = handleNasResponse(cl.GetSharingNfsIdId(ctx, []interface{}{nfsID}, &FreenasOapi.GetSharingNfsIdIdParams{})); err != nil {
-		return nil, err
-	}
-
-	var result struct {
-		Paths []string `json:"paths"`
-	}
-	if err = json.Unmarshal(nfsbody, &result); err != nil {
-		return nil, status.Errorf(codes.InvalidArgument, "Failed parsing NAS response: %+v", err)
-	}
-	if len(result.Paths) != 1 {
-		return nil, status.Errorf(codes.InvalidArgument, "Failed parsing NAS response: invalid Paths: %+v", result.Paths)
-	}
-
-	dataset := strings.TrimPrefix(result.Paths[0], "/mnt/")
-
-	if _, err = handleNasResponse(cl.PutPoolDatasetIdId(ctx, dataset, FreenasOapi.PutPoolDatasetIdIdJSONRequestBody{
-		Refreservation: &refreservation,
-		Refquota:       &refquota,
-	})); err != nil {
-		return nil, err
-	}
-
-	return &csi.ControllerExpandVolumeResponse{CapacityBytes: int64(refreservation), NodeExpansionRequired: false}, nil
+	return
 }
 
 func (cs *server) findNFSconfiguration(req *csi.CreateVolumeRequest) *config.NFS {
