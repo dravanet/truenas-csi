@@ -31,6 +31,7 @@ func (cs *server) createNFSVolume(ctx context.Context, req *csi.CreateVolumeRequ
 
 	var dataset string
 	var paths []string
+	var capacityBytes int64
 
 	share, err := cs.getNFSShareByComment(ctx, cl, req.Name)
 	if err != nil {
@@ -57,6 +58,8 @@ func (cs *server) createNFSVolume(ctx context.Context, req *csi.CreateVolumeRequ
 		})); err != nil {
 			return nil, err
 		}
+
+		capacityBytes = int64(refreservation)
 
 		defer func() {
 			if err != nil {
@@ -103,6 +106,15 @@ func (cs *server) createNFSVolume(ctx context.Context, req *csi.CreateVolumeRequ
 
 		paths = *share.Paths
 		dataset = strings.TrimPrefix(paths[0], "/mnt/")
+
+		ds, err := cs.getDataset(ctx, cl, dataset)
+		if err != nil {
+			return nil, err
+		}
+
+		if ds.Volsize != nil {
+			capacityBytes = *ds.Volsize
+		}
 	}
 
 	volumeContext := &volumecontext.VolumeContext{
@@ -115,7 +127,8 @@ func (cs *server) createNFSVolume(ctx context.Context, req *csi.CreateVolumeRequ
 
 	return &csi.CreateVolumeResponse{
 		Volume: &csi.Volume{
-			VolumeId: dataset,
+			CapacityBytes: capacityBytes,
+			VolumeId:      dataset,
 			VolumeContext: map[string]string{
 				"b64": serialized,
 			},

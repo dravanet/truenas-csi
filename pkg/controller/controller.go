@@ -253,9 +253,11 @@ func freenasOapiFilter(key, value string) func(ctx context.Context, req *http.Re
 }
 
 type datasetInfo struct {
-	ID       string
-	Type     string
-	Comments string
+	ID             string
+	Type           string
+	Comments       string
+	Refreservation *int64
+	Volsize        *int64
 }
 
 func (cs *server) getDataset(ctx context.Context, cl *FreenasOapi.Client, dataset string) (*datasetInfo, error) {
@@ -277,6 +279,12 @@ func (cs *server) getDataset(ctx context.Context, cl *FreenasOapi.Client, datase
 			Comments *struct {
 				Rawvalue string `json:"rawvalue"`
 			} `json:"comments"`
+			Volsize *struct {
+				Parsed int64 `json:"parsed"`
+			} `json:"volsize"`
+			Refreservation *struct {
+				Parsed int64 `json:"parsed"`
+			} `json:"refreservation"`
 		}
 		if err = json.Unmarshal(body, &result); err != nil {
 			return nil, status.Errorf(codes.Unavailable, "Error parsing dataset from NAS: %+v", err)
@@ -288,6 +296,12 @@ func (cs *server) getDataset(ctx context.Context, cl *FreenasOapi.Client, datase
 		}
 		if result.Comments != nil {
 			di.Comments = result.Comments.Rawvalue
+		}
+		if result.Volsize != nil {
+			di.Volsize = &result.Volsize.Parsed
+		}
+		if result.Refreservation != nil {
+			di.Refreservation = &result.Refreservation.Parsed
 		}
 
 		return di, nil

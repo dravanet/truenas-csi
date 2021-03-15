@@ -38,6 +38,7 @@ func (cs *server) createISCSIVolume(ctx context.Context, req *csi.CreateVolumeRe
 	var targetID int = -1
 	var iscsiUsername string
 	var iscsiSecret string
+	var capacityBytes int64
 
 	extent, err := cs.iscsiGetextentByComment(ctx, cl, req.Name)
 	if err != nil {
@@ -63,6 +64,8 @@ func (cs *server) createISCSIVolume(ctx context.Context, req *csi.CreateVolumeRe
 		})); err != nil {
 			return nil, err
 		}
+
+		capacityBytes = int64(volsize)
 
 		defer func() {
 			if err != nil {
@@ -101,6 +104,15 @@ func (cs *server) createISCSIVolume(ctx context.Context, req *csi.CreateVolumeRe
 	} else {
 		extentID = extent.ID
 		dataset = strings.TrimPrefix(extent.Disk, "zvol/")
+
+		ds, err := cs.getDataset(ctx, cl, dataset)
+		if err != nil {
+			return nil, err
+		}
+
+		if ds.Volsize != nil {
+			capacityBytes = *ds.Volsize
+		}
 
 		target, err := cs.iscsiGetTargetByExtent(ctx, cl, extentID)
 		if err != nil {
@@ -216,7 +228,8 @@ func (cs *server) createISCSIVolume(ctx context.Context, req *csi.CreateVolumeRe
 
 	return &csi.CreateVolumeResponse{
 		Volume: &csi.Volume{
-			VolumeId: dataset,
+			CapacityBytes: capacityBytes,
+			VolumeId:      dataset,
 			VolumeContext: map[string]string{
 				"b64": serialized,
 			},
