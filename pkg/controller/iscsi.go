@@ -77,7 +77,7 @@ func (cs *server) createISCSIVolume(ctx context.Context, req *csi.CreateVolumeRe
 		extenttype := "DISK"
 		zvolpath := path.Join("zvol", dataset)
 		insercuretpc := false
-		sbytes := make([]byte, 8)
+		sbytes := make([]byte, 7)
 		rand.Read(sbytes)
 		serial := hex.EncodeToString(sbytes)
 
