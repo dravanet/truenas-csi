@@ -108,6 +108,10 @@ func (cs *server) createISCSIVolume(ctx context.Context, req *csi.CreateVolumeRe
 			return nil, err
 		}
 
+		if ds == nil {
+			return nil, status.Error(codes.Internal, "Dataset not found")
+		}
+
 		if ds.Volsize != nil {
 			capacityBytes = *ds.Volsize
 		}
