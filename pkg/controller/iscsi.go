@@ -57,10 +57,14 @@ func (cs *server) createISCSIVolume(ctx context.Context, req *csi.CreateVolumeRe
 
 		// Create ZVOL
 		voltype := "VOLUME"
+		// set comment temporarily
+		comment := req.Name
+
 		if _, err := handleNasResponse(cl.PostPoolDataset(ctx, FreenasOapi.PostPoolDatasetJSONRequestBody{
-			Name:    &dataset,
-			Type:    &voltype,
-			Volsize: &volsize,
+			Name:     &dataset,
+			Type:     &voltype,
+			Volsize:  &volsize,
+			Comments: &comment,
 		})); err != nil {
 			return nil, err
 		}
@@ -91,13 +95,6 @@ func (cs *server) createISCSIVolume(ctx context.Context, req *csi.CreateVolumeRe
 			InsecureTpc: &insercuretpc,
 			Comment:     &req.Name,
 			Serial:      &serial,
-		})); err != nil {
-			return nil, err
-		}
-
-		comments := fmt.Sprintf("extent:%d", extentID)
-		if _, err = handleNasResponse(cl.PutPoolDatasetIdId(ctx, dataset, FreenasOapi.PutPoolDatasetIdIdJSONRequestBody{
-			Comments: &comments,
 		})); err != nil {
 			return nil, err
 		}
@@ -135,6 +132,14 @@ func (cs *server) createISCSIVolume(ctx context.Context, req *csi.CreateVolumeRe
 		} else {
 			_, targetName = path.Split(dataset)
 		}
+	}
+
+	// ensure comment is set on dataset, in case of an interrupted create process
+	comments := fmt.Sprintf("extent:%d", extentID)
+	if _, err = handleNasResponse(cl.PutPoolDatasetIdId(ctx, dataset, FreenasOapi.PutPoolDatasetIdIdJSONRequestBody{
+		Comments: &comments,
+	})); err != nil {
+		return nil, err
 	}
 
 	// targetName already populated
