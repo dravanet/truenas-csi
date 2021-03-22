@@ -35,4 +35,5 @@ type ISCSI struct {
 	Portal      string `json:"portal"`
 	PortalID    int    `json:"portalid"`
 	RootDataset string `json:"rootdataset"`
+	Sparse      bool   `json:"sparse,omitempty"`
 }

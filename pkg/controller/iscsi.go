@@ -64,6 +64,7 @@ func (cs *server) createISCSIVolume(ctx context.Context, req *csi.CreateVolumeRe
 			Name:     &dataset,
 			Type:     &voltype,
 			Volsize:  &volsize,
+			Sparse:   &iscsi.Sparse,
 			Comments: &comment,
 		})); err != nil {
 			return nil, err
