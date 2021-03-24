@@ -7,6 +7,7 @@ import (
 	"io/ioutil"
 	"net/http"
 	"net/url"
+	"path"
 
 	"google.golang.org/grpc/codes"
 	status "google.golang.org/grpc/status"
@@ -100,17 +101,23 @@ func (cs *server) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequest
 		return nil, status.Errorf(codes.Unavailable, "Error querying dataset: %+v", err)
 	}
 	if di != nil {
-		switch di.Type {
-		case "FILESYSTEM":
-			err = cs.deleteNFSVolume(ctx, cl, di)
-		case "VOLUME":
-			err = cs.deleteISCSIVolume(ctx, cl, di)
-		default:
-			err = status.Errorf(codes.InvalidArgument, "Received invalid response from NAS: %+v", di)
-		}
+		dp := cs.freenas.GetDeletePolicyForRootDataset(path.Dir(req.VolumeId))
 
-		if err == nil {
-			err = cs.removeDataset(ctx, cl, di.ID)
+		if dp != nil {
+			switch di.Type {
+			case "FILESYSTEM":
+				err = cs.deleteNFSVolume(ctx, cl, di)
+			case "VOLUME":
+				err = cs.deleteISCSIVolume(ctx, cl, di)
+			default:
+				err = status.Errorf(codes.InvalidArgument, "Received invalid response from NAS: %+v", di)
+			}
+
+			if err == nil {
+				err = cs.removeDataset(ctx, cl, di.ID, dp)
+			}
+		} else {
+			err = status.Errorf(codes.Internal, "Invalid internal configuration: no deletePolicy found")
 		}
 	}
 
@@ -314,13 +321,16 @@ func (cs *server) getDataset(ctx context.Context, cl *FreenasOapi.Client, datase
 
 // removeDataset removes or renames given dataset
 // TODO: implement rename
-func (cs *server) removeDataset(ctx context.Context, cl *FreenasOapi.Client, dataset string) error {
-	recursive := true
-	if _, err := handleNasResponse(cl.DeletePoolDatasetIdId(ctx, dataset, FreenasOapi.DeletePoolDatasetIdIdJSONRequestBody{Recursive: &recursive})); err != nil {
-		return err
+func (cs *server) removeDataset(ctx context.Context, cl *FreenasOapi.Client, dataset string, dp *config.DeletePolicy) error {
+	var err error
+
+	if *dp == config.DeletePolicyDelete {
+		recursive := true
+
+		_, err = handleNasResponse(cl.DeletePoolDatasetIdId(ctx, dataset, FreenasOapi.DeletePoolDatasetIdIdJSONRequestBody{Recursive: &recursive}))
 	}
 
-	return nil
+	return err
 }
 
 func handleNasResponse(resp *http.Response, err error) ([]byte, error) {

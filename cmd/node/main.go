@@ -38,6 +38,10 @@ func main() {
 		log.Fatal(err)
 	}
 
+	if err = cfg.Validate(); err != nil {
+		log.Fatal(err)
+	}
+
 	ser, err := yaml.Marshal(&cfg)
 	if err != nil {
 		log.Fatal(err)
