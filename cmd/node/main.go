@@ -1,6 +1,8 @@
 package main
 
 import (
+	"crypto/tls"
+	"crypto/x509"
 	"fmt"
 	"io/ioutil"
 	"log"
@@ -16,16 +18,21 @@ import (
 
 	"github.com/namsral/flag"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 	"gopkg.in/yaml.v2"
 )
 
 const (
 	unixProto = "unix://"
+	tcpProto  = "tcp://"
 )
 
 func main() {
 	csiEndpoint := flag.String("csi-endpoint", "unix:///csi/csi.sock", "CSI Endpoint address")
 	controllerConfig := flag.String("controller-config", "", "Configuration for CSI, enables Controller services")
+	tlsCert := flag.String("tls-cert", "", "TLS Certificate")
+	tlsKey := flag.String("tls-key", "", "TLS Private key")
+	tlsCA := flag.String("tls-ca", "", "TLS Certificate Authority")
 
 	flag.Parse()
 
@@ -54,21 +61,54 @@ func main() {
 		controllerServer = controller.New(&cfg)
 	}
 
-	if !strings.HasPrefix(*csiEndpoint, unixProto) {
-		log.Fatalf("Only %s endpoints are supported", unixProto)
+	var lis net.Listener
+	var err error
+	var opts []grpc.ServerOption
+
+	if *tlsCert != "" && *tlsKey != "" {
+		var tlsConfig tls.Config
+
+		cert, err := tls.LoadX509KeyPair(*tlsCert, *tlsKey)
+		if err != nil {
+			log.Fatal(err)
+		}
+		tlsConfig.Certificates = []tls.Certificate{cert}
+
+		if *tlsCA != "" {
+			roots := x509.NewCertPool()
+			cacerts, err := os.ReadFile(*tlsCA)
+			if err != nil {
+				log.Fatal(err)
+			}
+			roots.AppendCertsFromPEM(cacerts)
+
+			tlsConfig.ClientAuth = tls.RequireAndVerifyClientCert
+			tlsConfig.ClientCAs = roots
+		}
+
+		opts = append(opts, grpc.Creds(credentials.NewTLS(&tlsConfig)))
 	}
 
-	address := strings.TrimPrefix(*csiEndpoint, unixProto)
-	if err := os.Remove(address); err != nil && !os.IsNotExist(err) {
-		log.Fatalf("Failed removing existing socket: %+v", err)
+	if strings.HasPrefix(*csiEndpoint, tcpProto) {
+		address := strings.TrimPrefix(*csiEndpoint, tcpProto)
+
+		lis, err = net.Listen("tcp", address)
+	} else if strings.HasPrefix(*csiEndpoint, unixProto) {
+		address := strings.TrimPrefix(*csiEndpoint, unixProto)
+		if err = os.Remove(address); err != nil && !os.IsNotExist(err) {
+			log.Fatalf("Failed removing existing socket: %+v", err)
+		}
+
+		lis, err = net.Listen("unix", address)
+	} else {
+		log.Fatalf("Only %s or %s endpoints are supported", unixProto, tcpProto)
 	}
 
-	lis, err := net.Listen("unix", address)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	server := grpc.NewServer()
+	server := grpc.NewServer(opts...)
 
 	identityServer := identity.New(controllerServer != nil)
 	csi.RegisterIdentityServer(server, identityServer)
