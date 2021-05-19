@@ -25,28 +25,34 @@ const (
 
 func main() {
 	csiEndpoint := flag.String("csi-endpoint", "unix:///csi/csi.sock", "CSI Endpoint address")
-	csiConfig := flag.String("csi-config", "/config/csi-config.yml", "Configuration for CSI")
+	controllerConfig := flag.String("controller-config", "", "Configuration for CSI, enables Controller services")
 
 	flag.Parse()
 
-	cfgData, err := ioutil.ReadFile(*csiConfig)
-	if err != nil {
-		log.Fatal(err)
-	}
-	var cfg config.FreeNAS
-	if err = yaml.Unmarshal(cfgData, &cfg); err != nil {
-		log.Fatal(err)
-	}
+	var controllerServer csi.ControllerServer
 
-	if err = cfg.Validate(); err != nil {
-		log.Fatal(err)
-	}
+	if *controllerConfig != "" {
+		cfgData, err := ioutil.ReadFile(*controllerConfig)
+		if err != nil {
+			log.Fatal(err)
+		}
+		var cfg config.FreeNAS
+		if err = yaml.Unmarshal(cfgData, &cfg); err != nil {
+			log.Fatal(err)
+		}
 
-	ser, err := yaml.Marshal(&cfg)
-	if err != nil {
-		log.Fatal(err)
+		if err = cfg.Validate(); err != nil {
+			log.Fatal(err)
+		}
+
+		ser, err := yaml.Marshal(&cfg)
+		if err != nil {
+			log.Fatal(err)
+		}
+		fmt.Println(string(ser))
+
+		controllerServer = controller.New(&cfg)
 	}
-	fmt.Println(string(ser))
 
 	if !strings.HasPrefix(*csiEndpoint, unixProto) {
 		log.Fatalf("Only %s endpoints are supported", unixProto)
@@ -64,14 +70,15 @@ func main() {
 
 	server := grpc.NewServer()
 
-	identityServer := identity.New()
+	identityServer := identity.New(controllerServer != nil)
 	csi.RegisterIdentityServer(server, identityServer)
+
+	if controllerServer != nil {
+		csi.RegisterControllerServer(server, controllerServer)
+	}
 
 	nodeServer := node.New()
 	csi.RegisterNodeServer(server, nodeServer)
-
-	controllerServer := controller.New(&cfg)
-	csi.RegisterControllerServer(server, controllerServer)
 
 	server.Serve(lis)
 }

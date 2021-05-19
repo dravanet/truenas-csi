@@ -35,9 +35,11 @@ func (is *server) Probe(ctx context.Context, req *csi.ProbeRequest) (*csi.ProbeR
 }
 
 // New returns a new csi.IdentityServer
-func New() csi.IdentityServer {
-	is := &server{
-		capabilitities: []*csi.PluginCapability{
+func New(controller bool) csi.IdentityServer {
+	var caps []*csi.PluginCapability
+
+	if controller {
+		caps = []*csi.PluginCapability{
 			{
 				Type: &csi.PluginCapability_Service_{
 					Service: &csi.PluginCapability_Service{
@@ -52,7 +54,11 @@ func New() csi.IdentityServer {
 					},
 				},
 			},
-		},
+		}
+	}
+
+	is := &server{
+		capabilitities: caps,
 	}
 
 	return is
