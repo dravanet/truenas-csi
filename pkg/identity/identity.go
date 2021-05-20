@@ -38,24 +38,23 @@ func (is *server) Probe(ctx context.Context, req *csi.ProbeRequest) (*csi.ProbeR
 func New(controller bool) csi.IdentityServer {
 	var caps []*csi.PluginCapability
 
-	if controller {
-		caps = []*csi.PluginCapability{
-			{
-				Type: &csi.PluginCapability_Service_{
-					Service: &csi.PluginCapability_Service{
-						Type: csi.PluginCapability_Service_CONTROLLER_SERVICE,
-					},
+	if controller { // advertise controller service
+		caps = append(caps, &csi.PluginCapability{
+			Type: &csi.PluginCapability_Service_{
+				Service: &csi.PluginCapability_Service{
+					Type: csi.PluginCapability_Service_CONTROLLER_SERVICE,
 				},
 			},
-			{
-				Type: &csi.PluginCapability_VolumeExpansion_{
-					VolumeExpansion: &csi.PluginCapability_VolumeExpansion{
-						Type: csi.PluginCapability_VolumeExpansion_ONLINE,
-					},
-				},
-			},
-		}
+		})
 	}
+
+	caps = append(caps, &csi.PluginCapability{
+		Type: &csi.PluginCapability_VolumeExpansion_{
+			VolumeExpansion: &csi.PluginCapability_VolumeExpansion{
+				Type: csi.PluginCapability_VolumeExpansion_ONLINE,
+			},
+		},
+	})
 
 	is := &server{
 		capabilitities: caps,
