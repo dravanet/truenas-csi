@@ -1,0 +1,26 @@
+---
+#username: root
+#password: root
+apiurl: http://nas.lan/api/v2.0
+apikey: "1-abcd..."
+nfs:
+- rootdataset: main/nfsroot
+  allocateEnabled: true
+  deletePolicy: delete
+  # server address for clients
+  server: 192.168.0.11
+  allowedhosts: [] # single hosts to grant access for
+  allowednetworks: [] # networks to grant access for
+
+iscsi:
+- # ensure total zvol length is at most 63. Zvol full name
+  # will be <rootdataset>/<uuid>. uuid is 36 characters long.
+  rootdataset: main/iroot
+  allocateEnabled: true
+  deletePolicy: delete
+  # portal address for clients
+  portal: 192.168.0.11:3260
+  # portal id in TrueNAS
+  portalid: 1
+  # Create sparse volumes
+  sparse: false
