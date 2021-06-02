@@ -112,7 +112,7 @@ func (cs *server) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequest
 		return nil, status.Error(codes.InvalidArgument, "No VolumeId specified")
 	}
 
-	nas, dataset, err := cs.parsevolumeid(req.VolumeId)
+	nas, dataset, err := cs.parsevolumeid(req.GetVolumeId())
 	if err != nil {
 		return &csi.DeleteVolumeResponse{}, nil
 	}
@@ -156,15 +156,11 @@ func (cs *server) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequest
 
 // ValidateVolumeCapabilities validates request.
 func (cs *server) ValidateVolumeCapabilities(ctx context.Context, req *csi.ValidateVolumeCapabilitiesRequest) (*csi.ValidateVolumeCapabilitiesResponse, error) {
-	if req.GetVolumeId() == "" {
-		return nil, status.Error(codes.InvalidArgument, "No VolumeId specified")
-	}
-
 	if len(req.VolumeCapabilities) == 0 {
 		return nil, status.Error(codes.InvalidArgument, "No VolumeCapabilities specified")
 	}
 
-	nas, dataset, err := cs.parsevolumeid(req.VolumeId)
+	nas, dataset, err := cs.parsevolumeid(req.GetVolumeId())
 	if err != nil {
 		return nil, err
 	}
@@ -209,7 +205,7 @@ func (cs *server) ValidateVolumeCapabilities(ctx context.Context, req *csi.Valid
 
 // Expand volume
 func (cs *server) ControllerExpandVolume(ctx context.Context, req *csi.ControllerExpandVolumeRequest) (*csi.ControllerExpandVolumeResponse, error) {
-	nas, dataset, err := cs.parsevolumeid(req.VolumeId)
+	nas, dataset, err := cs.parsevolumeid(req.GetVolumeId())
 	if err != nil {
 		return nil, err
 	}
@@ -446,10 +442,15 @@ func extractID(data []byte) (int, error) {
 }
 
 func (cs *server) parsevolumeid(volumeid string) (nas *config.FreeNAS, dataset string, err error) {
+	if volumeid == "" {
+		err = status.Errorf(codes.InvalidArgument, "VolumeId not provided")
+		return
+	}
+
 	parts := strings.SplitN(volumeid, ":", 2)
 
 	if len(parts) != 2 {
-		err = status.Errorf(codes.InvalidArgument, "Invalid VolumeId received: %s", volumeid)
+		err = status.Errorf(codes.NotFound, "Invalid VolumeId received: %s", volumeid)
 		return
 	}
 
