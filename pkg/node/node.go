@@ -1,7 +1,6 @@
 package node
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"io/ioutil"
@@ -152,16 +151,9 @@ func New(nodeId string) csi.NodeServer {
 }
 
 func execCmd(ctx context.Context, name string, arg ...string) error {
-	var stderr bytes.Buffer
-
 	cmd := exec.CommandContext(ctx, name, arg...)
-	cmd.Stderr = &stderr
 
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("Failed running %s: %+v; %s", name, err, string(stderr.Bytes()))
-	}
-
-	return nil
+	return cmd.Run()
 }
 
 func (ns *server) extractVolumeContext(volumeContext map[string]string) (*volumecontext.VolumeContext, error) {

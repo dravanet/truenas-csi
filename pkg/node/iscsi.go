@@ -64,10 +64,10 @@ func (ns *server) stageISCSIVolume(ctx context.Context, req *csi.NodeStageVolume
 
 				mkfsErr := execCmd(ctx, fmt.Sprintf("mkfs.%s", fsType), devicePath)
 				if mkfsErr != nil {
-					return status.Errorf(codes.Unavailable, "Error creating filesystem: %+v", err)
+					return status.Errorf(codes.Unavailable, "Error creating filesystem: %+v", mkfsErr)
 				}
 			} else {
-				return status.Errorf(codes.Unavailable, "Error determining existing filesystem: %+v", err)
+				return status.Errorf(codes.Unavailable, "Error determining existing filesystem: %+v", blkidErr)
 			}
 		}
 	}
