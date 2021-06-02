@@ -112,7 +112,7 @@ func (cs *server) createISCSIVolume(ctx context.Context, req *csi.CreateVolumeRe
 
 		if ds.Volsize != nil {
 			if capacityBytes != *ds.Volsize {
-				return nil, status.Error(codes.InvalidArgument, "Creating existing volume with different capacity")
+				return nil, status.Error(codes.AlreadyExists, "Creating existing volume with different capacity")
 			}
 		}
 

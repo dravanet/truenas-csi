@@ -120,7 +120,7 @@ func (cs *server) createNFSVolume(ctx context.Context, req *csi.CreateVolumeRequ
 
 		if ds.Refreservation != nil {
 			if capacityBytes != *ds.Refreservation {
-				return nil, status.Error(codes.InvalidArgument, "Creating existing volume with different capacity")
+				return nil, status.Error(codes.AlreadyExists, "Creating existing volume with different capacity")
 			}
 		}
 	}

@@ -161,7 +161,7 @@ func (cs *server) ValidateVolumeCapabilities(ctx context.Context, req *csi.Valid
 	}
 
 	if di == nil {
-		return nil, status.Errorf(codes.InvalidArgument, "Volume does not exist")
+		return nil, status.Errorf(codes.NotFound, "Volume does not exist")
 	}
 
 	for _, cap := range req.VolumeCapabilities {

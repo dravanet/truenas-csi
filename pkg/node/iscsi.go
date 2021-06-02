@@ -117,11 +117,11 @@ func (ns *server) iscsiNodeExpandVolume(ctx context.Context, req *csi.NodeExpand
 
 	device, err := filepath.EvalSymlinks(path.Join(req.StagingTargetPath, "device"))
 	if err != nil {
-		return nil, status.Errorf(codes.Unavailable, "device unaccessible at StagingTargetPath=%s", path.Join(req.StagingTargetPath, "device"))
+		return nil, status.Errorf(codes.NotFound, "device unaccessible at StagingTargetPath=%s", path.Join(req.StagingTargetPath, "device"))
 	}
 
 	if !strings.HasPrefix(device, "/dev/") {
-		return nil, status.Errorf(codes.Unavailable, "Invalid device read: %s", device)
+		return nil, status.Errorf(codes.InvalidArgument, "Invalid device read: %s", device)
 	}
 
 	device = strings.TrimPrefix(device, "/dev/")
