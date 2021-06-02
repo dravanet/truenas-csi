@@ -4,6 +4,9 @@ import (
 	"fmt"
 )
 
+// Configuration
+type Configuration map[string]*FreeNAS
+
 // FreeNAS API access parameters
 type FreeNAS struct {
 	APIUrl string `yaml:"apiurl"`
@@ -16,15 +19,18 @@ type FreeNAS struct {
 	APIKey string `yaml:"apikey,omitempty"`
 
 	// NFS Parameters
-	NFS []*NFS `yaml:"nfs,omitempty"`
+	NFS map[string]*NFS `yaml:"nfs,omitempty"`
 
 	// ISCSI Parameters
-	ISCSI []*ISCSI `yaml:"iscsi,omitempty"`
+	ISCSI map[string]*ISCSI `yaml:"iscsi,omitempty"`
 
-	// Labels
-	Labels map[string]string `yaml:"labels,omitempty"`
-
+	name                 string
 	rootDsToDeletePolicy map[string]*DeletePolicy
+}
+
+// Name return NAS configuration's name
+func (nas *FreeNAS) Name() string {
+	return nas.name
 }
 
 // DeletePolicy specifies delete policy for a configuration
@@ -68,13 +74,26 @@ type ISCSI struct {
 	Sparse   bool   `yaml:"sparse,omitempty"`
 }
 
+// Validate validates configuration
+func (cfg *Configuration) Validate() error {
+	for name, nas := range *cfg {
+		if err := nas.Validate(); err != nil {
+			return err
+		}
+
+		nas.name = name
+	}
+
+	return nil
+}
+
 // Validate checks configuration that sane values are specifies.
 // - performs uniqueness check among RootDatasets
-func (cfg *FreeNAS) Validate() error {
-	cfg.rootDsToDeletePolicy = make(map[string]*DeletePolicy)
+func (nas *FreeNAS) Validate() error {
+	nas.rootDsToDeletePolicy = make(map[string]*DeletePolicy)
 
-	for _, nfs := range cfg.NFS {
-		if _, ok := cfg.rootDsToDeletePolicy[nfs.RootDataset]; ok {
+	for _, nfs := range nas.NFS {
+		if _, ok := nas.rootDsToDeletePolicy[nfs.RootDataset]; ok {
 			return fmt.Errorf("RootDataset \"%s\" is duplicated in configuration", nfs.RootDataset)
 		}
 
@@ -82,11 +101,11 @@ func (cfg *FreeNAS) Validate() error {
 			return err
 		}
 
-		cfg.rootDsToDeletePolicy[nfs.RootDataset] = nfs.DeletePolicy
+		nas.rootDsToDeletePolicy[nfs.RootDataset] = nfs.DeletePolicy
 	}
 
-	for _, iscsi := range cfg.ISCSI {
-		if _, ok := cfg.rootDsToDeletePolicy[iscsi.RootDataset]; ok {
+	for _, iscsi := range nas.ISCSI {
+		if _, ok := nas.rootDsToDeletePolicy[iscsi.RootDataset]; ok {
 			return fmt.Errorf("RootDataset \"%s\" is duplicated in configuration", iscsi.RootDataset)
 		}
 
@@ -94,7 +113,7 @@ func (cfg *FreeNAS) Validate() error {
 			return err
 		}
 
-		cfg.rootDsToDeletePolicy[iscsi.RootDataset] = iscsi.DeletePolicy
+		nas.rootDsToDeletePolicy[iscsi.RootDataset] = iscsi.DeletePolicy
 	}
 
 	return nil

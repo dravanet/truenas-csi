@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"path"
+	"strings"
 
 	"google.golang.org/grpc/codes"
 	status "google.golang.org/grpc/status"
@@ -15,10 +16,16 @@ import (
 	"github.com/dravanet/truenas-csi/pkg/config"
 	"github.com/dravanet/truenas-csi/pkg/csi"
 	FreenasOapi "github.com/dravanet/truenas-csi/pkg/freenas"
+	"github.com/dravanet/truenas-csi/pkg/volumecontext"
+)
+
+const (
+	nasSelector    = "net.dravanet.truenas-csi/nas"
+	configSelector = "net.dravanet.truenas-csi/config"
 )
 
 type server struct {
-	freenas *config.FreeNAS
+	config config.Configuration
 
 	csi.UnimplementedControllerServer
 }
@@ -35,6 +42,12 @@ func (cs *server) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequest
 	if len(req.VolumeCapabilities) == 0 {
 		return nil, status.Error(codes.InvalidArgument, "No VolumeCapabilities specified")
 	}
+
+	nasName := req.GetParameters()[nasSelector]
+	if nasName == "" {
+		nasName = "default"
+	}
+	nas := cs.config[nasName]
 
 	// According to req.VolumeCapabilities, we must choose between nfs or iscsi
 	var iscsi bool
@@ -61,14 +74,37 @@ func (cs *server) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequest
 		return nil, status.Error(codes.InvalidArgument, "conflicting options")
 	}
 
+	var err error
+	var dataset string
+	var capacityBytes int64
+	var volumeContext *volumecontext.VolumeContext
+
 	switch {
 	case nfs:
-		return cs.createNFSVolume(ctx, req)
+		dataset, capacityBytes, volumeContext, err = cs.createNFSVolume(ctx, req, nas)
 	case iscsi:
-		return cs.createISCSIVolume(ctx, req)
+		dataset, capacityBytes, volumeContext, err = cs.createISCSIVolume(ctx, req, nas)
+	default:
+		return nil, status.Error(codes.InvalidArgument, "Invalid VolumeCapabilities requested")
 	}
 
-	return nil, status.Error(codes.InvalidArgument, "Invalid VolumeCapabilities requested")
+	if err != nil {
+		return nil, err
+	}
+
+	serialized, _ := volumecontext.Base64Serializer().Serialize(volumeContext)
+
+	volumeid := fmt.Sprintf("%s:%s", nas.Name(), dataset)
+
+	return &csi.CreateVolumeResponse{
+		Volume: &csi.Volume{
+			CapacityBytes: capacityBytes,
+			VolumeId:      volumeid,
+			VolumeContext: map[string]string{
+				"b64": serialized,
+			},
+		},
+	}, nil
 }
 
 func (cs *server) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequest) (*csi.DeleteVolumeResponse, error) {
@@ -76,17 +112,22 @@ func (cs *server) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequest
 		return nil, status.Error(codes.InvalidArgument, "No VolumeId specified")
 	}
 
-	cl, err := newFreenasOapiClient(cs.freenas)
+	nas, dataset, err := cs.parsevolumeid(req.VolumeId)
+	if err != nil {
+		return &csi.DeleteVolumeResponse{}, nil
+	}
+
+	cl, err := newFreenasOapiClient(nas)
 	if err != nil {
 		return nil, status.Error(codes.Unavailable, "creating FreenasOapi client failed")
 	}
 
 	var di *datasetInfo
-	if di, err = cs.getDataset(ctx, cl, req.VolumeId); err != nil {
+	if di, err = cs.getDataset(ctx, cl, dataset); err != nil {
 		return nil, status.Errorf(codes.Unavailable, "Error querying dataset: %+v", err)
 	}
 	if di != nil {
-		dp := cs.freenas.GetDeletePolicyForRootDataset(path.Dir(req.VolumeId))
+		dp := nas.GetDeletePolicyForRootDataset(path.Dir(dataset))
 
 		if dp != nil {
 			switch di.Type {
@@ -123,12 +164,17 @@ func (cs *server) ValidateVolumeCapabilities(ctx context.Context, req *csi.Valid
 		return nil, status.Error(codes.InvalidArgument, "No VolumeCapabilities specified")
 	}
 
-	cl, err := newFreenasOapiClient(cs.freenas)
+	nas, dataset, err := cs.parsevolumeid(req.VolumeId)
+	if err != nil {
+		return nil, err
+	}
+
+	cl, err := newFreenasOapiClient(nas)
 	if err != nil {
 		return nil, status.Error(codes.Unavailable, "creating FreenasOapi client failed")
 	}
 
-	di, err := cs.getDataset(ctx, cl, req.VolumeId)
+	di, err := cs.getDataset(ctx, cl, dataset)
 	if err != nil {
 		return nil, err
 	}
@@ -163,12 +209,17 @@ func (cs *server) ValidateVolumeCapabilities(ctx context.Context, req *csi.Valid
 
 // Expand volume
 func (cs *server) ControllerExpandVolume(ctx context.Context, req *csi.ControllerExpandVolumeRequest) (*csi.ControllerExpandVolumeResponse, error) {
-	cl, err := newFreenasOapiClient(cs.freenas)
+	nas, dataset, err := cs.parsevolumeid(req.VolumeId)
+	if err != nil {
+		return nil, err
+	}
+
+	cl, err := newFreenasOapiClient(nas)
 	if err != nil {
 		return nil, status.Error(codes.Unavailable, "creating FreenasOapi client failed")
 	}
 
-	di, err := cs.getDataset(ctx, cl, req.VolumeId)
+	di, err := cs.getDataset(ctx, cl, dataset)
 	if err != nil {
 		return nil, err
 	}
@@ -238,9 +289,9 @@ func (cs *server) ControllerGetCapabilities(ctx context.Context, req *csi.Contro
 }
 
 // New returns a new csi.ControllerServer
-func New(cfg *config.FreeNAS) csi.ControllerServer {
+func New(cfg config.Configuration) csi.ControllerServer {
 	return &server{
-		freenas: cfg,
+		config: cfg,
 	}
 }
 
@@ -392,4 +443,24 @@ func extractID(data []byte) (int, error) {
 	}
 
 	return *result.ID, nil
+}
+
+func (cs *server) parsevolumeid(volumeid string) (nas *config.FreeNAS, dataset string, err error) {
+	parts := strings.SplitN(volumeid, ":", 2)
+
+	if len(parts) != 2 {
+		err = status.Errorf(codes.InvalidArgument, "Invalid VolumeId received: %s", volumeid)
+		return
+	}
+
+	nas = cs.config[parts[0]]
+
+	if nas == nil {
+		err = status.Errorf(codes.Unavailable, "NAS %s not found", parts[0])
+		return
+	}
+
+	dataset = parts[1]
+
+	return
 }

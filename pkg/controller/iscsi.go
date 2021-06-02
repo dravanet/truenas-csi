@@ -21,32 +21,38 @@ import (
 	"github.com/google/uuid"
 )
 
-func (cs *server) createISCSIVolume(ctx context.Context, req *csi.CreateVolumeRequest) (resp *csi.CreateVolumeResponse, err error) {
-	cl, err := newFreenasOapiClient(cs.freenas)
+func (cs *server) createISCSIVolume(ctx context.Context, req *csi.CreateVolumeRequest, nas *config.FreeNAS) (
+	dataset string,
+	capacityBytes int64,
+	volumeContext *volumecontext.VolumeContext,
+	err error) {
+
+	cl, err := newFreenasOapiClient(nas)
 	if err != nil {
-		return nil, status.Error(codes.Unavailable, "creating FreenasOapi client failed")
+		err = status.Error(codes.Unavailable, "creating FreenasOapi client failed")
+		return
 	}
 
-	iscsi := cs.findISCSIconfiguration(req)
+	iscsi := cs.findISCSIconfiguration(req, nas)
 	if iscsi == nil {
-		return nil, status.Error(codes.InvalidArgument, "could not find a suitable iscsi configuration")
+		err = status.Error(codes.InvalidArgument, "could not find a suitable iscsi configuration")
+		return
 	}
 
-	var dataset string
 	var extentID int
 	var targetName string
 	var targetID int = -1
 	var iscsiUsername string
 	var iscsiSecret string
 
-	capacityBytes := req.CapacityRange.GetLimitBytes()
+	capacityBytes = req.CapacityRange.GetLimitBytes()
 	if capacityBytes == 0 {
 		capacityBytes = req.CapacityRange.GetRequiredBytes()
 	}
 
 	extent, err := cs.iscsiGetextentByComment(ctx, cl, req.Name)
 	if err != nil {
-		return nil, err
+		return
 	}
 
 	if extent == nil {
@@ -60,14 +66,14 @@ func (cs *server) createISCSIVolume(ctx context.Context, req *csi.CreateVolumeRe
 		comment := req.Name
 
 		volsize := int(capacityBytes)
-		if _, err := handleNasResponse(cl.PostPoolDataset(ctx, FreenasOapi.PostPoolDatasetJSONRequestBody{
+		if _, err = handleNasResponse(cl.PostPoolDataset(ctx, FreenasOapi.PostPoolDatasetJSONRequestBody{
 			Name:     &dataset,
 			Type:     &voltype,
 			Volsize:  &volsize,
 			Sparse:   &iscsi.Sparse,
 			Comments: &comment,
 		})); err != nil {
-			return nil, err
+			return
 		}
 
 		defer func() {
@@ -95,39 +101,44 @@ func (cs *server) createISCSIVolume(ctx context.Context, req *csi.CreateVolumeRe
 			Comment:     &req.Name,
 			Serial:      &serial,
 		})); err != nil {
-			return nil, err
+			return
 		}
 	} else {
 		extentID = extent.ID
 		dataset = strings.TrimPrefix(extent.Disk, "zvol/")
 
-		ds, err := cs.getDataset(ctx, cl, dataset)
+		var ds *datasetInfo
+		ds, err = cs.getDataset(ctx, cl, dataset)
 		if err != nil {
-			return nil, err
+			return
 		}
 
 		if ds == nil {
-			return nil, status.Error(codes.Internal, "Dataset not found")
+			err = status.Error(codes.Internal, "Dataset not found")
+			return
 		}
 
 		if ds.Volsize != nil {
 			if capacityBytes != *ds.Volsize {
-				return nil, status.Error(codes.AlreadyExists, "Creating existing volume with different capacity")
+				err = status.Error(codes.AlreadyExists, "Creating existing volume with different capacity")
+				return
 			}
 		}
 
-		target, err := cs.iscsiGetTargetByExtent(ctx, cl, extentID)
+		var target *iscsiTarget
+		target, err = cs.iscsiGetTargetByExtent(ctx, cl, extentID)
 		if err != nil {
-			return nil, err
+			return
 		}
 
 		if target != nil {
 			targetName = *target.Name
 			targetID = target.ID
 
-			auth, err := cs.getIscsiAuth(ctx, cl, target)
+			var auth *iscsiAuth
+			auth, err = cs.getIscsiAuth(ctx, cl, target)
 			if err != nil {
-				return nil, err
+				return
 			}
 
 			if auth != nil {
@@ -144,7 +155,7 @@ func (cs *server) createISCSIVolume(ctx context.Context, req *csi.CreateVolumeRe
 	if _, err = handleNasResponse(cl.PutPoolDatasetIdId(ctx, dataset, FreenasOapi.PutPoolDatasetIdIdJSONRequestBody{
 		Comments: &comments,
 	})); err != nil {
-		return nil, err
+		return
 	}
 
 	// targetName already populated
@@ -160,7 +171,7 @@ func (cs *server) createISCSIVolume(ctx context.Context, req *csi.CreateVolumeRe
 			User:   &iscsiUsername,
 			Secret: &iscsiSecret,
 		})); err != nil {
-			return nil, err
+			return
 		}
 
 		defer func() {
@@ -170,10 +181,10 @@ func (cs *server) createISCSIVolume(ctx context.Context, req *csi.CreateVolumeRe
 		}()
 
 		// Update auth group
-		if _, err := handleNasResponse(cl.PutIscsiAuthIdId(ctx, tag, FreenasOapi.PutIscsiAuthIdIdJSONRequestBody{
+		if _, err = handleNasResponse(cl.PutIscsiAuthIdId(ctx, tag, FreenasOapi.PutIscsiAuthIdIdJSONRequestBody{
 			Tag: &tag,
 		})); err != nil {
-			return nil, err
+			return
 		}
 
 		// Create target
@@ -187,7 +198,7 @@ func (cs *server) createISCSIVolume(ctx context.Context, req *csi.CreateVolumeRe
 				},
 			},
 		})); err != nil {
-			return nil, err
+			return
 		}
 
 		defer func() {
@@ -198,29 +209,30 @@ func (cs *server) createISCSIVolume(ctx context.Context, req *csi.CreateVolumeRe
 
 		// Create association
 		lunid := 0
-		if _, err := handleNasResponse(cl.PostIscsiTargetextent(ctx, FreenasOapi.PostIscsiTargetextentJSONRequestBody{
+		if _, err = handleNasResponse(cl.PostIscsiTargetextent(ctx, FreenasOapi.PostIscsiTargetextentJSONRequestBody{
 			Target: &targetID,
 			Extent: &extentID,
 			Lunid:  &lunid,
 		})); err != nil {
-			return nil, err
+			return
 		}
 	}
 
 	// Obtain Target name
 	var iscsiglobalresp []byte
 	if iscsiglobalresp, err = handleNasResponse(cl.GetIscsiGlobal(ctx)); err != nil {
-		return nil, err
+		return
 	}
 	var result FreenasOapi.PutIscsiGlobalJSONBody
 	if err = json.Unmarshal(iscsiglobalresp, &result); err != nil {
-		return nil, err
+		return
 	}
 	if result.Basename == nil {
-		return nil, status.Errorf(codes.Unavailable, "Error parsing freenas response: missing basename")
+		err = status.Errorf(codes.Unavailable, "Error parsing freenas response: missing basename")
+		return
 	}
 
-	volumeContext := &volumecontext.VolumeContext{
+	volumeContext = &volumecontext.VolumeContext{
 		Iscsi: &volumecontext.ISCSI{
 			Portal: iscsi.Portal,
 			Target: fmt.Sprintf("%s:%s", *result.Basename, targetName),
@@ -234,17 +246,7 @@ func (cs *server) createISCSIVolume(ctx context.Context, req *csi.CreateVolumeRe
 		}
 	}
 
-	serialized, _ := volumecontext.Base64Serializer().Serialize(volumeContext)
-
-	return &csi.CreateVolumeResponse{
-		Volume: &csi.Volume{
-			CapacityBytes: capacityBytes,
-			VolumeId:      dataset,
-			VolumeContext: map[string]string{
-				"b64": serialized,
-			},
-		},
-	}, nil
+	return
 }
 
 func (cs *server) deleteISCSIVolume(ctx context.Context, cl *FreenasOapi.Client, di *datasetInfo) error {
@@ -419,12 +421,13 @@ func (cs *server) getIscsiAuth(ctx context.Context, cl *FreenasOapi.Client, targ
 	return
 }
 
-func (cs *server) findISCSIconfiguration(req *csi.CreateVolumeRequest) *config.ISCSI {
-	for _, iscsi := range cs.freenas.ISCSI {
-		return iscsi
+func (cs *server) findISCSIconfiguration(req *csi.CreateVolumeRequest, nas *config.FreeNAS) *config.ISCSI {
+	configName := req.GetParameters()[configSelector]
+	if configName == "" {
+		configName = "default"
 	}
 
-	return nil
+	return nas.ISCSI[configName]
 }
 
 func genIscsiSecret() string {

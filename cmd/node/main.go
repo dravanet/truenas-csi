@@ -46,7 +46,7 @@ func main() {
 		if err != nil {
 			log.Fatal(err)
 		}
-		var cfg config.FreeNAS
+		var cfg config.Configuration
 		if err = yaml.Unmarshal(cfgData, &cfg); err != nil {
 			log.Fatal(err)
 		}
@@ -61,7 +61,7 @@ func main() {
 		}
 		fmt.Println(string(ser))
 
-		controllerServer = controller.New(&cfg)
+		controllerServer = controller.New(cfg)
 	}
 
 	var lis net.Listener
