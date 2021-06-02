@@ -8,7 +8,9 @@ import (
 	"os"
 	"os/exec"
 	"path"
+	"path/filepath"
 
+	"golang.org/x/sys/unix"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
@@ -87,14 +89,24 @@ func (ns *server) NodePublishVolume(ctx context.Context, req *csi.NodePublishVol
 }
 
 func (ns *server) NodeUnpublishVolume(ctx context.Context, req *csi.NodeUnpublishVolumeRequest) (*csi.NodeUnpublishVolumeResponse, error) {
-	targetPathInfo, err := os.Stat(req.TargetPath)
+	var targetPathInfo unix.Stat_t
+	err := unix.Stat(req.TargetPath, &targetPathInfo)
 	if err != nil {
 		return &csi.NodeUnpublishVolumeResponse{}, nil
 	}
 
-	if targetPathInfo.IsDir() {
-		if err := execCmd(ctx, "umount", req.TargetPath); err != nil {
-			return nil, status.Errorf(codes.Unavailable, "Umount failed: %+v", err)
+	if targetPathInfo.Mode&unix.S_IFDIR == unix.S_IFDIR {
+		var parentInfo unix.Stat_t
+		err = unix.Stat(filepath.Dir(req.TargetPath), &parentInfo)
+
+		if err != nil {
+			return nil, status.Errorf(codes.Unavailable, "Stat parent failed: %+v", err)
+		}
+
+		if targetPathInfo.Dev != parentInfo.Dev {
+			if err := execCmd(ctx, "umount", req.TargetPath); err != nil {
+				return nil, status.Errorf(codes.Unavailable, "Umount failed: %+v", err)
+			}
 		}
 	}
 
