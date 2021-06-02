@@ -23,33 +23,6 @@ type server struct {
 	csi.UnimplementedControllerServer
 }
 
-const (
-	volTypeKey   = "type"
-	volTypeNFS   = "nfs"
-	volTypeISCSI = "iscsi"
-)
-
-func (cs *server) ControllerGetCapabilities(ctx context.Context, req *csi.ControllerGetCapabilitiesRequest) (*csi.ControllerGetCapabilitiesResponse, error) {
-	return &csi.ControllerGetCapabilitiesResponse{
-		Capabilities: []*csi.ControllerServiceCapability{
-			{
-				Type: &csi.ControllerServiceCapability_Rpc{
-					Rpc: &csi.ControllerServiceCapability_RPC{
-						Type: csi.ControllerServiceCapability_RPC_CREATE_DELETE_VOLUME,
-					},
-				},
-			},
-			{
-				Type: &csi.ControllerServiceCapability_Rpc{
-					Rpc: &csi.ControllerServiceCapability_RPC{
-						Type: csi.ControllerServiceCapability_RPC_EXPAND_VOLUME,
-					},
-				},
-			},
-		},
-	}, nil
-}
-
 func (cs *server) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequest) (*csi.CreateVolumeResponse, error) {
 	if req.GetName() == "" {
 		return nil, status.Error(codes.InvalidArgument, "No name specified")
@@ -241,6 +214,27 @@ func (cs *server) ControllerExpandVolume(ctx context.Context, req *csi.Controlle
 	}
 
 	return &csi.ControllerExpandVolumeResponse{CapacityBytes: capacity, NodeExpansionRequired: nodeExpansionRequired}, nil
+}
+
+func (cs *server) ControllerGetCapabilities(ctx context.Context, req *csi.ControllerGetCapabilitiesRequest) (*csi.ControllerGetCapabilitiesResponse, error) {
+	return &csi.ControllerGetCapabilitiesResponse{
+		Capabilities: []*csi.ControllerServiceCapability{
+			{
+				Type: &csi.ControllerServiceCapability_Rpc{
+					Rpc: &csi.ControllerServiceCapability_RPC{
+						Type: csi.ControllerServiceCapability_RPC_CREATE_DELETE_VOLUME,
+					},
+				},
+			},
+			{
+				Type: &csi.ControllerServiceCapability_Rpc{
+					Rpc: &csi.ControllerServiceCapability_RPC{
+						Type: csi.ControllerServiceCapability_RPC_EXPAND_VOLUME,
+					},
+				},
+			},
+		},
+	}, nil
 }
 
 // New returns a new csi.ControllerServer

@@ -154,6 +154,18 @@ func (ns *server) NodeUnpublishVolume(ctx context.Context, req *csi.NodeUnpublis
 	return &csi.NodeUnpublishVolumeResponse{}, nil
 }
 
+func (ns *server) NodeExpandVolume(ctx context.Context, req *csi.NodeExpandVolumeRequest) (*csi.NodeExpandVolumeResponse, error) {
+	if req.GetVolumeId() == "" {
+		return nil, status.Error(codes.InvalidArgument, "VolumeId not provided")
+	}
+
+	if req.VolumePath == "" {
+		return nil, status.Error(codes.InvalidArgument, "VolumePath not provided")
+	}
+
+	return ns.iscsiNodeExpandVolume(ctx, req)
+}
+
 func (ns *server) NodeGetCapabilities(context.Context, *csi.NodeGetCapabilitiesRequest) (*csi.NodeGetCapabilitiesResponse, error) {
 	return &csi.NodeGetCapabilitiesResponse{
 		Capabilities: []*csi.NodeServiceCapability{
@@ -179,18 +191,6 @@ func (ns *server) NodeGetInfo(context.Context, *csi.NodeGetInfoRequest) (*csi.No
 	return &csi.NodeGetInfoResponse{
 		NodeId: ns.nodeId,
 	}, nil
-}
-
-func (ns *server) NodeExpandVolume(ctx context.Context, req *csi.NodeExpandVolumeRequest) (*csi.NodeExpandVolumeResponse, error) {
-	if req.GetVolumeId() == "" {
-		return nil, status.Error(codes.InvalidArgument, "VolumeId not provided")
-	}
-
-	if req.VolumePath == "" {
-		return nil, status.Error(codes.InvalidArgument, "VolumePath not provided")
-	}
-
-	return ns.iscsiNodeExpandVolume(ctx, req)
 }
 
 // New returns csi.NodeServer
