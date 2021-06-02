@@ -26,6 +26,18 @@ type server struct {
 var _ csi.NodeServer = &server{}
 
 func (ns *server) NodeStageVolume(ctx context.Context, req *csi.NodeStageVolumeRequest) (*csi.NodeStageVolumeResponse, error) {
+	if req.GetVolumeId() == "" {
+		return nil, status.Error(codes.InvalidArgument, "VolumeId not provided")
+	}
+
+	if req.StagingTargetPath == "" {
+		return nil, status.Error(codes.InvalidArgument, "StagingTargetPath not provided")
+	}
+
+	if req.GetVolumeCapability() == nil {
+		return nil, status.Error(codes.InvalidArgument, "VolumeCapability not provided")
+	}
+
 	volumeContext, err := ns.extractVolumeContext(req.VolumeContext)
 	if err != nil {
 		return nil, status.Errorf(codes.FailedPrecondition, "Invalid volume context received: %+v", err)
@@ -44,6 +56,14 @@ func (ns *server) NodeStageVolume(ctx context.Context, req *csi.NodeStageVolumeR
 }
 
 func (ns *server) NodeUnstageVolume(ctx context.Context, req *csi.NodeUnstageVolumeRequest) (*csi.NodeUnstageVolumeResponse, error) {
+	if req.GetVolumeId() == "" {
+		return nil, status.Error(codes.InvalidArgument, "VolumeId not provided")
+	}
+
+	if req.StagingTargetPath == "" {
+		return nil, status.Error(codes.InvalidArgument, "StagingTargetPath not provided")
+	}
+
 	iscsiFile := path.Join(req.StagingTargetPath, "iscsi")
 
 	if targetb, err := ioutil.ReadFile(iscsiFile); err == nil {
@@ -57,6 +77,18 @@ func (ns *server) NodeUnstageVolume(ctx context.Context, req *csi.NodeUnstageVol
 }
 
 func (ns *server) NodePublishVolume(ctx context.Context, req *csi.NodePublishVolumeRequest) (*csi.NodePublishVolumeResponse, error) {
+	if req.GetVolumeId() == "" {
+		return nil, status.Error(codes.InvalidArgument, "VolumeId not provided")
+	}
+
+	if req.TargetPath == "" {
+		return nil, status.Error(codes.InvalidArgument, "TargetPath not provided")
+	}
+
+	if req.GetVolumeCapability() == nil {
+		return nil, status.Error(codes.InvalidArgument, "VolumeCapability not provided")
+	}
+
 	if _, err := os.Stat(req.TargetPath); err == nil {
 		return &csi.NodePublishVolumeResponse{}, nil
 	}
@@ -88,6 +120,14 @@ func (ns *server) NodePublishVolume(ctx context.Context, req *csi.NodePublishVol
 }
 
 func (ns *server) NodeUnpublishVolume(ctx context.Context, req *csi.NodeUnpublishVolumeRequest) (*csi.NodeUnpublishVolumeResponse, error) {
+	if req.GetVolumeId() == "" {
+		return nil, status.Error(codes.InvalidArgument, "VolumeId not provided")
+	}
+
+	if req.TargetPath == "" {
+		return nil, status.Error(codes.InvalidArgument, "TargetPath not provided")
+	}
+
 	var targetPathInfo unix.Stat_t
 	err := unix.Stat(req.TargetPath, &targetPathInfo)
 	if err != nil {
@@ -142,6 +182,14 @@ func (ns *server) NodeGetInfo(context.Context, *csi.NodeGetInfoRequest) (*csi.No
 }
 
 func (ns *server) NodeExpandVolume(ctx context.Context, req *csi.NodeExpandVolumeRequest) (*csi.NodeExpandVolumeResponse, error) {
+	if req.GetVolumeId() == "" {
+		return nil, status.Error(codes.InvalidArgument, "VolumeId not provided")
+	}
+
+	if req.VolumePath == "" {
+		return nil, status.Error(codes.InvalidArgument, "VolumePath not provided")
+	}
+
 	return ns.iscsiNodeExpandVolume(ctx, req)
 }
 

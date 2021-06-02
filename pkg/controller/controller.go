@@ -142,6 +142,14 @@ func (cs *server) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequest
 
 // ValidateVolumeCapabilities validates request.
 func (cs *server) ValidateVolumeCapabilities(ctx context.Context, req *csi.ValidateVolumeCapabilitiesRequest) (*csi.ValidateVolumeCapabilitiesResponse, error) {
+	if req.GetVolumeId() == "" {
+		return nil, status.Error(codes.InvalidArgument, "No VolumeId specified")
+	}
+
+	if len(req.VolumeCapabilities) == 0 {
+		return nil, status.Error(codes.InvalidArgument, "No VolumeCapabilities specified")
+	}
+
 	cl, err := newFreenasOapiClient(cs.freenas)
 	if err != nil {
 		return nil, status.Error(codes.Unavailable, "creating FreenasOapi client failed")
@@ -151,6 +159,7 @@ func (cs *server) ValidateVolumeCapabilities(ctx context.Context, req *csi.Valid
 	if err != nil {
 		return nil, err
 	}
+
 	if di == nil {
 		return nil, status.Errorf(codes.InvalidArgument, "Volume does not exist")
 	}

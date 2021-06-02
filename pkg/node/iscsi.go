@@ -111,13 +111,17 @@ func (ns *server) publishISCSIVolume(ctx context.Context, req *csi.NodePublishVo
 }
 
 func (ns *server) iscsiNodeExpandVolume(ctx context.Context, req *csi.NodeExpandVolumeRequest) (*csi.NodeExpandVolumeResponse, error) {
+	if req.StagingTargetPath == "" {
+		return nil, status.Errorf(codes.InvalidArgument, "StagingTargetPath not provided")
+	}
+
 	device, err := filepath.EvalSymlinks(path.Join(req.StagingTargetPath, "device"))
 	if err != nil {
-		return nil, status.Errorf(codes.Unavailable, "device unaccessible at StagingTargetPath=", path.Join(req.StagingTargetPath, "device"))
+		return nil, status.Errorf(codes.Unavailable, "device unaccessible at StagingTargetPath=%s", path.Join(req.StagingTargetPath, "device"))
 	}
 
 	if !strings.HasPrefix(device, "/dev/") {
-		return nil, status.Errorf(codes.Unavailable, "Invalid device read: ", device)
+		return nil, status.Errorf(codes.Unavailable, "Invalid device read: %s", device)
 	}
 
 	device = strings.TrimPrefix(device, "/dev/")
