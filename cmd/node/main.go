@@ -28,7 +28,10 @@ const (
 )
 
 func main() {
+	hostname, _ := os.Hostname()
+
 	csiEndpoint := flag.String("csi-endpoint", "unix:///csi/csi.sock", "CSI Endpoint address")
+	csiNodeId := flag.String("csi-node-id", hostname, "CSI Node ID reported in NodeInfo")
 	controllerConfig := flag.String("controller-config", "", "Configuration for CSI, enables Controller services")
 	tlsCert := flag.String("tls-cert", "", "TLS Certificate")
 	tlsKey := flag.String("tls-key", "", "TLS Private key")
@@ -117,7 +120,7 @@ func main() {
 		csi.RegisterControllerServer(server, controllerServer)
 	}
 
-	nodeServer := node.New()
+	nodeServer := node.New(*csiNodeId)
 	csi.RegisterNodeServer(server, nodeServer)
 
 	server.Serve(lis)

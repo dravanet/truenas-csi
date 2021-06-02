@@ -17,6 +17,8 @@ import (
 )
 
 type server struct {
+	nodeId string
+
 	csi.UnimplementedNodeServer
 }
 
@@ -123,10 +125,8 @@ func (ns *server) NodeGetCapabilities(context.Context, *csi.NodeGetCapabilitiesR
 }
 
 func (ns *server) NodeGetInfo(context.Context, *csi.NodeGetInfoRequest) (*csi.NodeGetInfoResponse, error) {
-	hostname, _ := os.Hostname()
-
 	return &csi.NodeGetInfoResponse{
-		NodeId: hostname,
+		NodeId: ns.nodeId,
 	}, nil
 }
 
@@ -135,8 +135,8 @@ func (ns *server) NodeExpandVolume(ctx context.Context, req *csi.NodeExpandVolum
 }
 
 // New returns csi.NodeServer
-func New() csi.NodeServer {
-	return &server{}
+func New(nodeId string) csi.NodeServer {
+	return &server{nodeId: nodeId}
 }
 
 func execCmd(ctx context.Context, name string, arg ...string) error {

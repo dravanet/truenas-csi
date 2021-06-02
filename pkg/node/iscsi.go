@@ -99,6 +99,7 @@ func (ns *server) publishISCSIVolume(ctx context.Context, req *csi.NodePublishVo
 			return status.Errorf(codes.Unavailable, "Failed creating symlink at TargetPath")
 		}
 	case cap.GetMount() != nil:
+		os.Mkdir(req.TargetPath, 0o755)
 		if err := execCmd(ctx, "mount", path.Join(req.StagingTargetPath, "device"), req.TargetPath); err != nil {
 			return status.Errorf(codes.Unavailable, "Error mounting filesystem: %+v", err)
 		}
