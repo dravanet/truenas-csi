@@ -51,8 +51,16 @@ func (cs *server) ControllerGetCapabilities(ctx context.Context, req *csi.Contro
 }
 
 func (cs *server) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequest) (*csi.CreateVolumeResponse, error) {
+	if req.GetName() == "" {
+		return nil, status.Error(codes.InvalidArgument, "No name specified")
+	}
+
 	if req.CapacityRange.GetRequiredBytes() == 0 && req.CapacityRange.GetLimitBytes() == 0 {
-		return nil, status.Error(codes.FailedPrecondition, "No capacity requirements specified")
+		return nil, status.Error(codes.InvalidArgument, "No capacity requirements specified")
+	}
+
+	if len(req.VolumeCapabilities) == 0 {
+		return nil, status.Error(codes.InvalidArgument, "No VolumeCapabilities specified")
 	}
 
 	// According to req.VolumeCapabilities, we must choose between nfs or iscsi
@@ -77,7 +85,7 @@ func (cs *server) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequest
 
 	// if we end up with conflicting request, return an error
 	if iscsi && nfs {
-		return nil, status.Error(codes.FailedPrecondition, "conflicting options")
+		return nil, status.Error(codes.InvalidArgument, "conflicting options")
 	}
 
 	switch {
@@ -87,10 +95,14 @@ func (cs *server) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequest
 		return cs.createISCSIVolume(ctx, req)
 	}
 
-	return nil, status.Error(codes.FailedPrecondition, "Invalid VolumeCapabilities requested")
+	return nil, status.Error(codes.InvalidArgument, "Invalid VolumeCapabilities requested")
 }
 
 func (cs *server) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequest) (*csi.DeleteVolumeResponse, error) {
+	if req.GetVolumeId() == "" {
+		return nil, status.Error(codes.InvalidArgument, "No VolumeId specified")
+	}
+
 	cl, err := newFreenasOapiClient(cs.freenas)
 	if err != nil {
 		return nil, status.Error(codes.Unavailable, "creating FreenasOapi client failed")
