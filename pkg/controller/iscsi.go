@@ -38,7 +38,11 @@ func (cs *server) createISCSIVolume(ctx context.Context, req *csi.CreateVolumeRe
 	var targetID int = -1
 	var iscsiUsername string
 	var iscsiSecret string
-	var capacityBytes int64
+
+	capacityBytes := req.CapacityRange.GetLimitBytes()
+	if capacityBytes == 0 {
+		capacityBytes = req.CapacityRange.GetRequiredBytes()
+	}
 
 	extent, err := cs.iscsiGetextentByComment(ctx, cl, req.Name)
 	if err != nil {
@@ -50,16 +54,12 @@ func (cs *server) createISCSIVolume(ctx context.Context, req *csi.CreateVolumeRe
 		targetName = uuid.NewString()
 		dataset = path.Join(iscsi.RootDataset, targetName)
 
-		volsize := int(req.CapacityRange.GetLimitBytes())
-		if volsize == 0 {
-			volsize = int(req.CapacityRange.GetRequiredBytes())
-		}
-
 		// Create ZVOL
 		voltype := "VOLUME"
 		// set comment temporarily
 		comment := req.Name
 
+		volsize := int(capacityBytes)
 		if _, err := handleNasResponse(cl.PostPoolDataset(ctx, FreenasOapi.PostPoolDatasetJSONRequestBody{
 			Name:     &dataset,
 			Type:     &voltype,
@@ -69,8 +69,6 @@ func (cs *server) createISCSIVolume(ctx context.Context, req *csi.CreateVolumeRe
 		})); err != nil {
 			return nil, err
 		}
-
-		capacityBytes = int64(volsize)
 
 		defer func() {
 			if err != nil {
@@ -113,7 +111,9 @@ func (cs *server) createISCSIVolume(ctx context.Context, req *csi.CreateVolumeRe
 		}
 
 		if ds.Volsize != nil {
-			capacityBytes = *ds.Volsize
+			if capacityBytes != *ds.Volsize {
+				return nil, status.Error(codes.InvalidArgument, "Creating existing volume with different capacity")
+			}
 		}
 
 		target, err := cs.iscsiGetTargetByExtent(ctx, cl, extentID)

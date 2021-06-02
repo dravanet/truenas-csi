@@ -31,7 +31,11 @@ func (cs *server) createNFSVolume(ctx context.Context, req *csi.CreateVolumeRequ
 
 	var dataset string
 	var paths []string
-	var capacityBytes int64
+
+	capacityBytes := req.CapacityRange.GetRequiredBytes()
+	if capacityBytes == 0 {
+		capacityBytes = req.CapacityRange.GetLimitBytes()
+	}
 
 	share, err := cs.getNFSShareByComment(ctx, cl, req.Name)
 	if err != nil {
@@ -58,8 +62,6 @@ func (cs *server) createNFSVolume(ctx context.Context, req *csi.CreateVolumeRequ
 		})); err != nil {
 			return nil, err
 		}
-
-		capacityBytes = int64(refreservation)
 
 		defer func() {
 			if err != nil {
@@ -112,8 +114,14 @@ func (cs *server) createNFSVolume(ctx context.Context, req *csi.CreateVolumeRequ
 			return nil, err
 		}
 
-		if ds.Volsize != nil {
-			capacityBytes = *ds.Volsize
+		if ds == nil {
+			return nil, status.Error(codes.Internal, "Dataset not found")
+		}
+
+		if ds.Refreservation != nil {
+			if capacityBytes != *ds.Refreservation {
+				return nil, status.Error(codes.InvalidArgument, "Creating existing volume with different capacity")
+			}
 		}
 	}
 
