@@ -44,11 +44,8 @@ func (ns *server) NodeStageVolume(ctx context.Context, req *csi.NodeStageVolumeR
 	}
 
 	if volumeContext.Iscsi != nil {
-		iscsiFile := path.Join(req.StagingTargetPath, "iscsi")
-		if _, err := os.Stat(iscsiFile); err != nil && os.IsNotExist(err) {
-			if err = ns.stageISCSIVolume(ctx, req, volumeContext.Iscsi); err != nil {
-				return nil, err
-			}
+		if err = ns.stageISCSIVolume(ctx, req, volumeContext.Iscsi); err != nil {
+			return nil, err
 		}
 	}
 

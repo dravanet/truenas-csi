@@ -19,27 +19,36 @@ import (
 )
 
 func (ns *server) stageISCSIVolume(ctx context.Context, req *csi.NodeStageVolumeRequest, iscsi *volumecontext.ISCSI) (err error) {
-	if err = iscsiAddNode(ctx, iscsi); err != nil {
-		return status.Errorf(codes.Unavailable, "failed adding iscsi node: %+v", err)
+	portal := iscsi.Portal
+	if !strings.Contains(portal, ":") {
+		portal = portal + ":3260"
 	}
-	defer func() {
-		if err != nil {
-			iscsiDeleteNode(context.Background(), iscsi.Target)
-		}
-	}()
 
-	if err = iscsiLoginNode(ctx, iscsi.Target); err != nil {
-		return status.Errorf(codes.Unavailable, "failed logging into iscsi target: %+v", err)
-	}
-	defer func() {
-		if err != nil {
-			iscsiLogoutNode(context.Background(), iscsi.Target)
-		}
-	}()
+	device := fmt.Sprintf("/dev/disk/by-path/ip-%s-iscsi-%s-lun-0", portal, iscsi.Target)
+	_, err = os.Stat(device)
 
-	rdev, err := iscsiWaitForDevice(ctx, iscsi.Portal, iscsi.Target)
 	if err != nil {
-		return status.Errorf(codes.Unavailable, "Error waiting for device: %+v", err)
+		if err = iscsiAddNode(ctx, iscsi); err != nil {
+			return status.Errorf(codes.Unavailable, "failed adding iscsi node: %+v", err)
+		}
+		defer func() {
+			if err != nil {
+				iscsiDeleteNode(context.Background(), iscsi.Target)
+			}
+		}()
+
+		if err = iscsiLoginNode(ctx, iscsi.Target); err != nil {
+			return status.Errorf(codes.Unavailable, "failed logging into iscsi target: %+v", err)
+		}
+		defer func() {
+			if err != nil {
+				iscsiLogoutNode(context.Background(), iscsi.Target)
+			}
+		}()
+
+		if err = iscsiWaitForDevice(ctx, device); err != nil {
+			return status.Errorf(codes.Unavailable, "Error waiting for device: %+v", err)
+		}
 	}
 
 	if err = ioutil.WriteFile(path.Join(req.StagingTargetPath, "iscsi"), []byte(iscsi.Target), 0o640); err != nil {
@@ -47,7 +56,8 @@ func (ns *server) stageISCSIVolume(ctx context.Context, req *csi.NodeStageVolume
 	}
 
 	devicePath := path.Join(req.StagingTargetPath, "device")
-	if err = os.Symlink(rdev, devicePath); err != nil {
+	os.Remove(devicePath)
+	if err = os.Symlink(device, devicePath); err != nil {
 		return status.Errorf(codes.Unavailable, "Error creating symlink: %+v", err)
 	}
 
@@ -188,12 +198,7 @@ func iscsiLogoutNode(ctx context.Context, target string) error {
 	return execCmd(ctx, "iscsiadm", "-m", "node", "-T", target, "-u")
 }
 
-func iscsiWaitForDevice(ctx context.Context, portal string, target string) (path string, err error) {
-	if !strings.Contains(portal, ":") {
-		portal = portal + ":3260"
-	}
-	path = fmt.Sprintf("/dev/disk/by-path/ip-%s-iscsi-%s-lun-0", portal, target)
-
+func iscsiWaitForDevice(ctx context.Context, device string) (err error) {
 	tcontext, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
@@ -201,13 +206,13 @@ func iscsiWaitForDevice(ctx context.Context, portal string, target string) (path
 	defer ticker.Stop()
 
 	for {
-		if _, err = os.Stat(path); err == nil {
+		if _, err = os.Stat(device); err == nil {
 			return
 		}
 
 		select {
 		case <-tcontext.Done():
-			return "", fmt.Errorf("Waiting for device at %s timed out", path)
+			return fmt.Errorf("Waiting for device at %s timed out", device)
 		case <-ticker.C:
 		}
 	}
