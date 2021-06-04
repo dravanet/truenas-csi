@@ -126,7 +126,7 @@ func (ns *server) NodeUnpublishVolume(ctx context.Context, req *csi.NodeUnpublis
 	}
 
 	var targetPathInfo unix.Stat_t
-	err := unix.Stat(req.TargetPath, &targetPathInfo)
+	err := unix.Lstat(req.TargetPath, &targetPathInfo)
 	if err != nil {
 		return &csi.NodeUnpublishVolumeResponse{}, nil
 	}
