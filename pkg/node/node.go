@@ -86,10 +86,6 @@ func (ns *server) NodePublishVolume(ctx context.Context, req *csi.NodePublishVol
 		return nil, status.Error(codes.InvalidArgument, "VolumeCapability not provided")
 	}
 
-	if _, err := os.Stat(req.TargetPath); err == nil {
-		return &csi.NodePublishVolumeResponse{}, nil
-	}
-
 	if req.StagingTargetPath == "" {
 		return nil, status.Error(codes.FailedPrecondition, "StagingTargetPath not set")
 	}
@@ -125,24 +121,9 @@ func (ns *server) NodeUnpublishVolume(ctx context.Context, req *csi.NodeUnpublis
 		return nil, status.Error(codes.InvalidArgument, "TargetPath not provided")
 	}
 
-	var targetPathInfo unix.Stat_t
-	err := unix.Lstat(req.TargetPath, &targetPathInfo)
-	if err != nil {
-		return &csi.NodeUnpublishVolumeResponse{}, nil
-	}
-
-	if targetPathInfo.Mode&unix.S_IFDIR == unix.S_IFDIR {
-		var parentInfo unix.Stat_t
-		err = unix.Stat(filepath.Dir(req.TargetPath), &parentInfo)
-
-		if err != nil {
-			return nil, status.Errorf(codes.Unavailable, "Stat parent failed: %+v", err)
-		}
-
-		if targetPathInfo.Dev != parentInfo.Dev {
-			if err := execCmd(ctx, "umount", req.TargetPath); err != nil {
-				return nil, status.Errorf(codes.Unavailable, "Umount failed: %+v", err)
-			}
+	if isMountPoint(req.TargetPath) {
+		if err := execCmd(ctx, "umount", req.TargetPath); err != nil {
+			return nil, status.Errorf(codes.Unavailable, "Umount failed: %+v", err)
 		}
 	}
 
@@ -207,4 +188,25 @@ func (ns *server) extractVolumeContext(volumeContext map[string]string) (*volume
 	}
 
 	return nil, fmt.Errorf("VolumeContext did not contain expected field")
+}
+
+// isMountPoint returns true if path exists and is a mountpoint
+func isMountPoint(path string) bool {
+	var pathStat unix.Stat_t
+	if err := unix.Lstat(path, &pathStat); err != nil {
+		return false
+	}
+
+	if pathStat.Mode&unix.S_IFDIR == unix.S_IFDIR {
+		var parentStat unix.Stat_t
+		if err := unix.Stat(filepath.Dir(path), &parentStat); err != nil {
+			return false
+		}
+
+		if pathStat.Dev != parentStat.Dev {
+			return true
+		}
+	}
+
+	return false
 }
