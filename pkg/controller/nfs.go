@@ -78,6 +78,14 @@ func (cs *server) createNFSVolume(ctx context.Context, req *csi.CreateVolumeRequ
 			}
 		}()
 
+		mode := "0777"
+		if _, err = handleNasResponse(cl.PostPoolDatasetIdIdPermission(ctx, dataset, TruenasOapi.PostPoolDatasetIdIdPermissionJSONRequestBody{
+			Acl:  &[]map[string]interface{}{},
+			Mode: &mode,
+		})); err != nil {
+			return
+		}
+
 		enabled := true
 		paths = []string{path.Join("/mnt", dataset)}
 		maprootuser := "root"
