@@ -14,7 +14,7 @@ import (
 
 	"github.com/dravanet/truenas-csi/pkg/config"
 	"github.com/dravanet/truenas-csi/pkg/csi"
-	FreenasOapi "github.com/dravanet/truenas-csi/pkg/freenas"
+	TruenasOapi "github.com/dravanet/truenas-csi/pkg/truenas"
 	"github.com/dravanet/truenas-csi/pkg/volumecontext"
 )
 
@@ -24,7 +24,7 @@ func (cs *server) createNFSVolume(ctx context.Context, req *csi.CreateVolumeRequ
 	volumeContext *volumecontext.VolumeContext,
 	err error) {
 
-	cl, err := newFreenasOapiClient(nas)
+	cl, err := newTruenasOapiClient(nas)
 	if err != nil {
 		err = status.Error(codes.Unavailable, "creating FreenasOapi client failed")
 		return
@@ -60,7 +60,7 @@ func (cs *server) createNFSVolume(ctx context.Context, req *csi.CreateVolumeRequ
 			refquota = refreservation
 		}
 
-		if _, err = handleNasResponse(cl.PostPoolDataset(ctx, FreenasOapi.PostPoolDatasetJSONRequestBody{
+		if _, err = handleNasResponse(cl.PostPoolDataset(ctx, TruenasOapi.PostPoolDatasetJSONRequestBody{
 			Name:           &dataset,
 			Refreservation: &refreservation,
 			Refquota:       &refquota,
@@ -72,7 +72,7 @@ func (cs *server) createNFSVolume(ctx context.Context, req *csi.CreateVolumeRequ
 		defer func() {
 			if err != nil {
 				recursive := true
-				cl.DeletePoolDatasetIdId(ctx, dataset, FreenasOapi.DeletePoolDatasetIdIdJSONRequestBody{
+				cl.DeletePoolDatasetIdId(ctx, dataset, TruenasOapi.DeletePoolDatasetIdIdJSONRequestBody{
 					Recursive: &recursive,
 				})
 			}
@@ -84,7 +84,7 @@ func (cs *server) createNFSVolume(ctx context.Context, req *csi.CreateVolumeRequ
 		maprootgroup := "wheel"
 
 		var nfsID int
-		if nfsID, err = handleNasCreateResponse(cl.PostSharingNfs(ctx, FreenasOapi.PostSharingNfsJSONRequestBody{
+		if nfsID, err = handleNasCreateResponse(cl.PostSharingNfs(ctx, TruenasOapi.PostSharingNfsJSONRequestBody{
 			Enabled:      &enabled,
 			Paths:        &paths,
 			Comment:      &req.Name,
@@ -102,7 +102,7 @@ func (cs *server) createNFSVolume(ctx context.Context, req *csi.CreateVolumeRequ
 		}()
 
 		comments := fmt.Sprintf("nfs:%d", nfsID)
-		if _, err = handleNasResponse(cl.PutPoolDatasetIdId(ctx, dataset, FreenasOapi.PutPoolDatasetIdIdJSONRequestBody{
+		if _, err = handleNasResponse(cl.PutPoolDatasetIdId(ctx, dataset, TruenasOapi.PutPoolDatasetIdIdJSONRequestBody{
 			Comments: &comments,
 		})); err != nil {
 			return
@@ -144,7 +144,7 @@ func (cs *server) createNFSVolume(ctx context.Context, req *csi.CreateVolumeRequ
 	return
 }
 
-func (cs *server) deleteNFSVolume(ctx context.Context, cl *FreenasOapi.Client, di *datasetInfo) error {
+func (cs *server) deleteNFSVolume(ctx context.Context, cl *TruenasOapi.Client, di *datasetInfo) error {
 	nfsID, err := strconv.ParseInt(strings.TrimPrefix(di.Comments, "nfs:"), 10, 32)
 	if err != nil {
 		return status.Errorf(codes.InvalidArgument, "Failed parsing nfsID: %+v", err)
@@ -157,12 +157,12 @@ func (cs *server) deleteNFSVolume(ctx context.Context, cl *FreenasOapi.Client, d
 	return nil
 }
 
-func (cs *server) getNFSShareByComment(ctx context.Context, cl *FreenasOapi.Client, comment string) (share *FreenasOapi.PostSharingNfsJSONBody, err error) {
+func (cs *server) getNFSShareByComment(ctx context.Context, cl *TruenasOapi.Client, comment string) (share *TruenasOapi.PostSharingNfsJSONBody, err error) {
 	var nfsshareresp []byte
-	if nfsshareresp, err = handleNasResponse(cl.GetSharingNfs(ctx, &FreenasOapi.GetSharingNfsParams{}, freenasOapiFilter("comment", comment))); err != nil {
+	if nfsshareresp, err = handleNasResponse(cl.GetSharingNfs(ctx, &TruenasOapi.GetSharingNfsParams{}, truenasOapiFilter("comment", comment))); err != nil {
 		return
 	}
-	var shares []FreenasOapi.PostSharingNfsJSONBody
+	var shares []TruenasOapi.PostSharingNfsJSONBody
 	if err = json.Unmarshal(nfsshareresp, &shares); err != nil {
 		return nil, status.Error(codes.Unavailable, "Error parsing NAS response")
 	}

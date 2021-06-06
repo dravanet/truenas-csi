@@ -16,7 +16,7 @@ import (
 
 	"github.com/dravanet/truenas-csi/pkg/config"
 	"github.com/dravanet/truenas-csi/pkg/csi"
-	FreenasOapi "github.com/dravanet/truenas-csi/pkg/freenas"
+	TruenasOapi "github.com/dravanet/truenas-csi/pkg/truenas"
 	"github.com/dravanet/truenas-csi/pkg/volumecontext"
 	"github.com/google/uuid"
 )
@@ -27,7 +27,7 @@ func (cs *server) createISCSIVolume(ctx context.Context, req *csi.CreateVolumeRe
 	volumeContext *volumecontext.VolumeContext,
 	err error) {
 
-	cl, err := newFreenasOapiClient(nas)
+	cl, err := newTruenasOapiClient(nas)
 	if err != nil {
 		err = status.Error(codes.Unavailable, "creating FreenasOapi client failed")
 		return
@@ -61,12 +61,12 @@ func (cs *server) createISCSIVolume(ctx context.Context, req *csi.CreateVolumeRe
 		dataset = path.Join(iscsi.RootDataset, targetName)
 
 		// Create ZVOL
-		voltype := "VOLUME"
+		voltype := TruenasOapi.PoolDatasetCreate0TypeVOLUME
 		// set comment temporarily
 		comment := req.Name
 
 		volsize := int(capacityBytes)
-		if _, err = handleNasResponse(cl.PostPoolDataset(ctx, FreenasOapi.PostPoolDatasetJSONRequestBody{
+		if _, err = handleNasResponse(cl.PostPoolDataset(ctx, TruenasOapi.PostPoolDatasetJSONRequestBody{
 			Name:     &dataset,
 			Type:     &voltype,
 			Volsize:  &volsize,
@@ -79,21 +79,21 @@ func (cs *server) createISCSIVolume(ctx context.Context, req *csi.CreateVolumeRe
 		defer func() {
 			if err != nil {
 				recursive := true
-				cl.DeletePoolDatasetIdId(ctx, dataset, FreenasOapi.DeletePoolDatasetIdIdJSONRequestBody{
+				cl.DeletePoolDatasetIdId(ctx, dataset, TruenasOapi.DeletePoolDatasetIdIdJSONRequestBody{
 					Recursive: &recursive,
 				})
 			}
 		}()
 
 		// Create ISCSI Extent
-		extenttype := "DISK"
+		extenttype := TruenasOapi.IscsiExtentCreate0TypeDISK
 		zvolpath := path.Join("zvol", dataset)
 		insercuretpc := false
 		sbytes := make([]byte, 7)
 		rand.Read(sbytes)
 		serial := hex.EncodeToString(sbytes)
 
-		if extentID, err = handleNasCreateResponse(cl.PostIscsiExtent(ctx, FreenasOapi.PostIscsiExtentJSONRequestBody{
+		if extentID, err = handleNasCreateResponse(cl.PostIscsiExtent(ctx, TruenasOapi.PostIscsiExtentJSONRequestBody{
 			Name:        &targetName,
 			Type:        &extenttype,
 			Disk:        &zvolpath,
@@ -152,7 +152,7 @@ func (cs *server) createISCSIVolume(ctx context.Context, req *csi.CreateVolumeRe
 
 	// ensure comment is set on dataset, in case of an interrupted create process
 	comments := fmt.Sprintf("extent:%d", extentID)
-	if _, err = handleNasResponse(cl.PutPoolDatasetIdId(ctx, dataset, FreenasOapi.PutPoolDatasetIdIdJSONRequestBody{
+	if _, err = handleNasResponse(cl.PutPoolDatasetIdId(ctx, dataset, TruenasOapi.PutPoolDatasetIdIdJSONRequestBody{
 		Comments: &comments,
 	})); err != nil {
 		return
@@ -166,7 +166,7 @@ func (cs *server) createISCSIVolume(ctx context.Context, req *csi.CreateVolumeRe
 		iscsiSecret = genIscsiSecret()
 		tag := int(-1)
 
-		if tag, err = handleNasCreateResponse(cl.PostIscsiAuth(ctx, FreenasOapi.PostIscsiAuthJSONRequestBody{
+		if tag, err = handleNasCreateResponse(cl.PostIscsiAuth(ctx, TruenasOapi.PostIscsiAuthJSONRequestBody{
 			Tag:    &tag,
 			User:   &iscsiUsername,
 			Secret: &iscsiSecret,
@@ -181,14 +181,14 @@ func (cs *server) createISCSIVolume(ctx context.Context, req *csi.CreateVolumeRe
 		}()
 
 		// Update auth group
-		if _, err = handleNasResponse(cl.PutIscsiAuthIdId(ctx, tag, FreenasOapi.PutIscsiAuthIdIdJSONRequestBody{
+		if _, err = handleNasResponse(cl.PutIscsiAuthIdId(ctx, tag, TruenasOapi.PutIscsiAuthIdIdJSONRequestBody{
 			Tag: &tag,
 		})); err != nil {
 			return
 		}
 
 		// Create target
-		if targetID, err = handleNasCreateResponse(cl.PostIscsiTarget(ctx, FreenasOapi.PostIscsiTargetJSONRequestBody{
+		if targetID, err = handleNasCreateResponse(cl.PostIscsiTarget(ctx, TruenasOapi.PostIscsiTargetJSONRequestBody{
 			Name: &targetName,
 			Groups: &[]map[string]interface{}{
 				{
@@ -203,13 +203,13 @@ func (cs *server) createISCSIVolume(ctx context.Context, req *csi.CreateVolumeRe
 
 		defer func() {
 			if err != nil {
-				cl.DeleteIscsiTargetIdId(ctx, targetID, FreenasOapi.DeleteIscsiTargetIdIdJSONRequestBody(false))
+				cl.DeleteIscsiTargetIdId(ctx, targetID, TruenasOapi.DeleteIscsiTargetIdIdJSONRequestBody(false))
 			}
 		}()
 
 		// Create association
 		lunid := 0
-		if _, err = handleNasResponse(cl.PostIscsiTargetextent(ctx, FreenasOapi.PostIscsiTargetextentJSONRequestBody{
+		if _, err = handleNasResponse(cl.PostIscsiTargetextent(ctx, TruenasOapi.PostIscsiTargetextentJSONRequestBody{
 			Target: &targetID,
 			Extent: &extentID,
 			Lunid:  &lunid,
@@ -223,7 +223,7 @@ func (cs *server) createISCSIVolume(ctx context.Context, req *csi.CreateVolumeRe
 	if iscsiglobalresp, err = handleNasResponse(cl.GetIscsiGlobal(ctx)); err != nil {
 		return
 	}
-	var result FreenasOapi.PutIscsiGlobalJSONBody
+	var result TruenasOapi.PutIscsiGlobalJSONBody
 	if err = json.Unmarshal(iscsiglobalresp, &result); err != nil {
 		return
 	}
@@ -249,7 +249,7 @@ func (cs *server) createISCSIVolume(ctx context.Context, req *csi.CreateVolumeRe
 	return
 }
 
-func (cs *server) deleteISCSIVolume(ctx context.Context, cl *FreenasOapi.Client, di *datasetInfo) error {
+func (cs *server) deleteISCSIVolume(ctx context.Context, cl *TruenasOapi.Client, di *datasetInfo) error {
 	extent, err := strconv.ParseInt(strings.TrimPrefix(di.Comments, "extent:"), 10, 32)
 	if err != nil {
 		return status.Errorf(codes.InvalidArgument, "Failed parsing extentID: %+v", err)
@@ -282,7 +282,7 @@ func (cs *server) deleteISCSIVolume(ctx context.Context, cl *FreenasOapi.Client,
 	}
 
 	// Delete extent
-	if _, err := cl.DeleteIscsiExtentIdId(ctx, int(extent), FreenasOapi.DeleteIscsiExtentIdIdJSONRequestBody{}); err != nil {
+	if _, err := cl.DeleteIscsiExtentIdId(ctx, int(extent), TruenasOapi.DeleteIscsiExtentIdIdJSONRequestBody{}); err != nil {
 		return status.Errorf(codes.Unavailable, "Error during call to Nas: %+v", err)
 	}
 
@@ -295,9 +295,9 @@ type iscsiExtent struct {
 	Disk    string `json:"disk"`
 }
 
-func (cs *server) iscsiGetextentByComment(ctx context.Context, cl *FreenasOapi.Client, comment string) (ret *iscsiExtent, err error) {
+func (cs *server) iscsiGetextentByComment(ctx context.Context, cl *TruenasOapi.Client, comment string) (ret *iscsiExtent, err error) {
 	var extentresp []byte
-	if extentresp, err = handleNasResponse(cl.GetIscsiExtent(ctx, &FreenasOapi.GetIscsiExtentParams{}, freenasOapiFilter("comment", comment))); err != nil {
+	if extentresp, err = handleNasResponse(cl.GetIscsiExtent(ctx, &TruenasOapi.GetIscsiExtentParams{}, truenasOapiFilter("comment", comment))); err != nil {
 		return nil, err
 	}
 
@@ -330,14 +330,14 @@ type iscsiTarget struct {
 	Name *string `json:"name,omitempty"`
 }
 
-func (cs *server) iscsiGetTargetByExtent(ctx context.Context, cl *FreenasOapi.Client, extent int) (ret *iscsiTarget, err error) {
+func (cs *server) iscsiGetTargetByExtent(ctx context.Context, cl *TruenasOapi.Client, extent int) (ret *iscsiTarget, err error) {
 	var targetextentbody []byte
-	if targetextentbody, err = handleNasResponse(cl.GetIscsiTargetextent(ctx, &FreenasOapi.GetIscsiTargetextentParams{}, freenasOapiFilter("extent", fmt.Sprintf("%d", extent)))); err != nil {
+	if targetextentbody, err = handleNasResponse(cl.GetIscsiTargetextent(ctx, &TruenasOapi.GetIscsiTargetextentParams{}, truenasOapiFilter("extent", fmt.Sprintf("%d", extent)))); err != nil {
 		return
 	}
 	var extents []struct {
-		Extent *int `json:"extent"`
-		Target *int `json:"target"`
+		Extent int `json:"extent"`
+		Target int `json:"target"`
 	}
 	if err = json.Unmarshal(targetextentbody, &extents); err != nil {
 		err = status.Errorf(codes.Unavailable, "Error parsing result from NAS: %+v", err)
@@ -350,14 +350,14 @@ func (cs *server) iscsiGetTargetByExtent(ctx context.Context, cl *FreenasOapi.Cl
 		return
 	}
 	if len(extents) == 1 {
-		if *extents[0].Extent != extent {
+		if extents[0].Extent != extent {
 			err = status.Errorf(codes.Unavailable, "Unexpected result from NAS, does filtering work?: %+v", extents)
 
 			return
 		}
 
 		var targetbody []byte
-		if targetbody, err = handleNasResponse(cl.GetIscsiTargetIdId(ctx, []interface{}{*extents[0].Target}, &FreenasOapi.GetIscsiTargetIdIdParams{})); err != nil {
+		if targetbody, err = handleNasResponse(cl.GetIscsiTargetIdId(ctx, extents[0].Target, &TruenasOapi.GetIscsiTargetIdIdParams{})); err != nil {
 			return
 		}
 
@@ -376,10 +376,10 @@ func (cs *server) iscsiGetTargetByExtent(ctx context.Context, cl *FreenasOapi.Cl
 
 type iscsiAuth struct {
 	ID int `json:"id"`
-	FreenasOapi.PostIscsiAuthJSONBody
+	TruenasOapi.PostIscsiAuthJSONBody
 }
 
-func (cs *server) getIscsiAuth(ctx context.Context, cl *FreenasOapi.Client, target *iscsiTarget) (ret *iscsiAuth, err error) {
+func (cs *server) getIscsiAuth(ctx context.Context, cl *TruenasOapi.Client, target *iscsiTarget) (ret *iscsiAuth, err error) {
 	if len(target.Groups) > 1 {
 		err = status.Errorf(codes.Unavailable, "Unexpected result: too many groups assigned: %+v", target)
 
@@ -391,7 +391,7 @@ func (cs *server) getIscsiAuth(ctx context.Context, cl *FreenasOapi.Client, targ
 	}
 
 	var authresp []byte
-	if authresp, err = handleNasResponse(cl.GetIscsiAuth(ctx, &FreenasOapi.GetIscsiAuthParams{}, freenasOapiFilter("tag", fmt.Sprintf("%d", *target.Groups[0].Auth)))); err != nil {
+	if authresp, err = handleNasResponse(cl.GetIscsiAuth(ctx, &TruenasOapi.GetIscsiAuthParams{}, truenasOapiFilter("tag", fmt.Sprintf("%d", *target.Groups[0].Auth)))); err != nil {
 		return
 	}
 

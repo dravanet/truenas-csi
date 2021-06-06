@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
-	"net/url"
 	"path"
 	"strings"
 
@@ -15,7 +14,7 @@ import (
 
 	"github.com/dravanet/truenas-csi/pkg/config"
 	"github.com/dravanet/truenas-csi/pkg/csi"
-	FreenasOapi "github.com/dravanet/truenas-csi/pkg/freenas"
+	TruenasOapi "github.com/dravanet/truenas-csi/pkg/truenas"
 	"github.com/dravanet/truenas-csi/pkg/volumecontext"
 )
 
@@ -117,7 +116,7 @@ func (cs *server) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequest
 		return &csi.DeleteVolumeResponse{}, nil
 	}
 
-	cl, err := newFreenasOapiClient(nas)
+	cl, err := newTruenasOapiClient(nas)
 	if err != nil {
 		return nil, status.Error(codes.Unavailable, "creating FreenasOapi client failed")
 	}
@@ -165,7 +164,7 @@ func (cs *server) ValidateVolumeCapabilities(ctx context.Context, req *csi.Valid
 		return nil, err
 	}
 
-	cl, err := newFreenasOapiClient(nas)
+	cl, err := newTruenasOapiClient(nas)
 	if err != nil {
 		return nil, status.Error(codes.Unavailable, "creating FreenasOapi client failed")
 	}
@@ -210,7 +209,7 @@ func (cs *server) ControllerExpandVolume(ctx context.Context, req *csi.Controlle
 		return nil, err
 	}
 
-	cl, err := newFreenasOapiClient(nas)
+	cl, err := newTruenasOapiClient(nas)
 	if err != nil {
 		return nil, status.Error(codes.Unavailable, "creating FreenasOapi client failed")
 	}
@@ -224,7 +223,7 @@ func (cs *server) ControllerExpandVolume(ctx context.Context, req *csi.Controlle
 	}
 
 	var capacity int64
-	putrequest := FreenasOapi.PutPoolDatasetIdIdJSONRequestBody{}
+	putrequest := TruenasOapi.PutPoolDatasetIdIdJSONRequestBody{}
 	nodeExpansionRequired := false
 
 	switch di.Type {
@@ -291,27 +290,27 @@ func New(cfg config.Configuration) csi.ControllerServer {
 	}
 }
 
-func newFreenasOapiClient(cfg *config.FreeNAS) (*FreenasOapi.Client, error) {
-	var opts []FreenasOapi.ClientOption
+func newTruenasOapiClient(cfg *config.FreeNAS) (*TruenasOapi.Client, error) {
+	var opts []TruenasOapi.ClientOption
 
 	if cfg.APIKey != "" {
-		opts = append(opts, FreenasOapi.WithRequestEditorFn(func(ctx context.Context, req *http.Request) error {
+		opts = append(opts, TruenasOapi.WithRequestEditorFn(func(ctx context.Context, req *http.Request) error {
 			req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", cfg.APIKey))
 
 			return nil
 		}))
 	} else {
-		opts = append(opts, FreenasOapi.WithRequestEditorFn(func(ctx context.Context, req *http.Request) error {
+		opts = append(opts, TruenasOapi.WithRequestEditorFn(func(ctx context.Context, req *http.Request) error {
 			req.SetBasicAuth(cfg.Username, cfg.Password)
 
 			return nil
 		}))
 	}
 
-	return FreenasOapi.NewClient(cfg.APIUrl, opts...)
+	return TruenasOapi.NewClient(cfg.APIUrl, opts...)
 }
 
-func freenasOapiFilter(key, value string) func(ctx context.Context, req *http.Request) error {
+func truenasOapiFilter(key, value string) func(ctx context.Context, req *http.Request) error {
 	return func(ctx context.Context, req *http.Request) error {
 		q := req.URL.Query()
 		q.Add(key, value)
@@ -329,8 +328,8 @@ type datasetInfo struct {
 	Volsize        *int64
 }
 
-func (cs *server) getDataset(ctx context.Context, cl *FreenasOapi.Client, dataset string) (*datasetInfo, error) {
-	resp, err := cl.GetPoolDatasetIdId(ctx, []interface{}{url.PathEscape(dataset)}, &FreenasOapi.GetPoolDatasetIdIdParams{})
+func (cs *server) getDataset(ctx context.Context, cl *TruenasOapi.Client, dataset string) (*datasetInfo, error) {
+	resp, err := cl.GetPoolDatasetIdId(ctx, dataset, &TruenasOapi.GetPoolDatasetIdIdParams{})
 	if err != nil {
 		return nil, status.Errorf(codes.Unavailable, "Error during call to Nas: %+v", err)
 	}
@@ -383,13 +382,13 @@ func (cs *server) getDataset(ctx context.Context, cl *FreenasOapi.Client, datase
 
 // removeDataset removes or renames given dataset
 // TODO: implement rename
-func (cs *server) removeDataset(ctx context.Context, cl *FreenasOapi.Client, dataset string, dp *config.DeletePolicy) error {
+func (cs *server) removeDataset(ctx context.Context, cl *TruenasOapi.Client, dataset string, dp *config.DeletePolicy) error {
 	var err error
 
 	if *dp == config.DeletePolicyDelete {
 		recursive := true
 
-		_, err = handleNasResponse(cl.DeletePoolDatasetIdId(ctx, dataset, FreenasOapi.DeletePoolDatasetIdIdJSONRequestBody{Recursive: &recursive}))
+		_, err = handleNasResponse(cl.DeletePoolDatasetIdId(ctx, dataset, TruenasOapi.DeletePoolDatasetIdIdJSONRequestBody{Recursive: &recursive}))
 	}
 
 	return err
