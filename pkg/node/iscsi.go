@@ -105,8 +105,12 @@ func (ns *server) publishISCSIVolume(ctx context.Context, req *csi.NodePublishVo
 		if err != nil {
 			return status.Errorf(codes.Unavailable, "error reading symlink")
 		}
-		if err = os.Symlink(device, req.TargetPath); err != nil {
-			return status.Errorf(codes.Unavailable, "Failed creating symlink at TargetPath")
+		if oldlink, err := os.Readlink(req.TargetPath); err != nil || device != oldlink {
+			os.Remove(req.TargetPath)
+
+			if err = os.Symlink(device, req.TargetPath); err != nil {
+				return status.Errorf(codes.Unavailable, "Failed creating symlink at TargetPath")
+			}
 		}
 	case cap.GetMount() != nil:
 		if !isMountPoint(req.TargetPath) {
