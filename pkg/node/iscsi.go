@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"golang.org/x/sys/unix"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
@@ -141,14 +142,32 @@ func (ns *server) iscsiNodeExpandVolume(ctx context.Context, req *csi.NodeExpand
 		return nil, status.Errorf(codes.InvalidArgument, "Invalid device read: %s", device)
 	}
 
-	device = strings.TrimPrefix(device, "/dev/")
+	blockdevice := strings.TrimPrefix(device, "/dev/")
 
-	rescanPath := path.Join("/sys", "class", "block", device, "device", "rescan")
+	rescanPath := path.Join("/sys", "class", "block", blockdevice, "device", "rescan")
 	if err = ioutil.WriteFile(rescanPath, []byte("- - -"), 0); err != nil {
 		return nil, status.Errorf(codes.Unavailable, "Failed issuing rescan to %s: %+v", rescanPath, err)
 	}
 
-	// TODO: handle mounted filesystem
+	ismnt, _ := isMountPoint(req.VolumePath)
+	if ismnt {
+		var statfs unix.Statfs_t
+		if err := unix.Statfs(req.VolumePath, &statfs); err != nil {
+			return nil, status.Errorf(codes.Unavailable, "statfs failed on %q", req.VolumePath)
+		}
+
+		switch statfs.Type {
+		// case unix.EXT2_SUPER_MAGIC, unix.EXT3_SUPER_MAGIC, unix.EXT4_SUPER_MAGIC:
+		case unix.EXT4_SUPER_MAGIC:
+			err = execCmd(ctx, "resize2fs", device)
+		case unix.XFS_SUPER_MAGIC:
+			err = execCmd(ctx, "xfs_growfs", req.VolumePath)
+		}
+
+		if err != nil {
+			return nil, status.Errorf(codes.Unavailable, "growing filesystem at %q (device: %q) failed", req.VolumePath, device)
+		}
+	}
 
 	return &csi.NodeExpandVolumeResponse{}, nil
 }
