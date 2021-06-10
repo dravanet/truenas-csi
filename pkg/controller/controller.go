@@ -223,7 +223,6 @@ func (cs *server) ControllerExpandVolume(ctx context.Context, req *csi.Controlle
 	}
 
 	var capacity int64
-	putrequest := TruenasOapi.PutPoolDatasetIdIdJSONRequestBody{}
 	nodeExpansionRequired := false
 
 	switch di.Type {
@@ -237,8 +236,18 @@ func (cs *server) ControllerExpandVolume(ctx context.Context, req *csi.Controlle
 			refquota = refreservation
 		}
 
-		putrequest.Refreservation = &refreservation
-		putrequest.Refquota = &refquota
+		if _, err = handleNasResponse(cl.PutPoolDatasetIdId(ctx, di.ID, TruenasOapi.PutPoolDatasetIdIdJSONRequestBody{
+			Refquota: &refquota,
+		})); err != nil {
+			return nil, err
+		}
+
+		if _, err = handleNasResponse(cl.PutPoolDatasetIdId(ctx, di.ID, TruenasOapi.PutPoolDatasetIdIdJSONRequestBody{
+			Refreservation: &refreservation,
+		})); err != nil {
+			return nil, err
+		}
+
 		capacity = int64(refreservation)
 
 	case "VOLUME":
@@ -247,16 +256,17 @@ func (cs *server) ControllerExpandVolume(ctx context.Context, req *csi.Controlle
 			volsize = int(req.CapacityRange.GetRequiredBytes())
 		}
 
-		putrequest.Volsize = &volsize
+		if _, err = handleNasResponse(cl.PutPoolDatasetIdId(ctx, di.ID, TruenasOapi.PutPoolDatasetIdIdJSONRequestBody{
+			Volsize: &volsize,
+		})); err != nil {
+			return nil, err
+		}
+
 		capacity = int64(volsize)
 		nodeExpansionRequired = true
 
 	default:
 		return nil, status.Errorf(codes.InvalidArgument, "Invalid dataset received from NAS: %+v", di)
-	}
-
-	if _, err = handleNasResponse(cl.PutPoolDatasetIdId(ctx, di.ID, putrequest)); err != nil {
-		return nil, err
 	}
 
 	return &csi.ControllerExpandVolumeResponse{CapacityBytes: capacity, NodeExpansionRequired: nodeExpansionRequired}, nil
