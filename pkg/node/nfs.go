@@ -19,7 +19,8 @@ func (ns *server) publishNFSVolume(ctx context.Context, req *csi.NodePublishVolu
 
 	switch {
 	case cap.GetMount() != nil:
-		if !isMountPoint(req.TargetPath) {
+		ismnt, _ := isMountPoint(req.TargetPath)
+		if !ismnt {
 			os.Mkdir(req.TargetPath, 0o755)
 			if err := execCmd(ctx, "mount", nfs.Address, req.TargetPath); err != nil {
 				return status.Errorf(codes.Unavailable, "Error mounting filesystem: %+v", err)

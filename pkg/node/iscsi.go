@@ -113,7 +113,8 @@ func (ns *server) publishISCSIVolume(ctx context.Context, req *csi.NodePublishVo
 			}
 		}
 	case cap.GetMount() != nil:
-		if !isMountPoint(req.TargetPath) {
+		ismnt, _ := isMountPoint(req.TargetPath)
+		if !ismnt {
 			os.Mkdir(req.TargetPath, 0o755)
 			if err := execCmd(ctx, "mount", path.Join(req.StagingTargetPath, "device"), req.TargetPath); err != nil {
 				return status.Errorf(codes.Unavailable, "Error mounting filesystem: %+v", err)

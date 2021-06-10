@@ -121,7 +121,8 @@ func (ns *server) NodeUnpublishVolume(ctx context.Context, req *csi.NodeUnpublis
 		return nil, status.Error(codes.InvalidArgument, "TargetPath not provided")
 	}
 
-	if isMountPoint(req.TargetPath) {
+	ismnt, _ := isMountPoint(req.TargetPath)
+	if ismnt {
 		if err := execCmd(ctx, "umount", req.TargetPath); err != nil {
 			return nil, status.Errorf(codes.Unavailable, "Umount failed: %+v", err)
 		}
@@ -130,6 +131,56 @@ func (ns *server) NodeUnpublishVolume(ctx context.Context, req *csi.NodeUnpublis
 	os.Remove(req.TargetPath)
 
 	return &csi.NodeUnpublishVolumeResponse{}, nil
+}
+
+func (ns *server) NodeGetVolumeStats(ctx context.Context, req *csi.NodeGetVolumeStatsRequest) (*csi.NodeGetVolumeStatsResponse, error) {
+	ismnt, stat := isMountPoint(req.VolumePath)
+
+	if ismnt {
+		var statfs unix.Statfs_t
+		if err := unix.Statfs(req.VolumePath, &statfs); err != nil {
+			return nil, status.Errorf(codes.Unavailable, "statfs failed on %q", req.VolumePath)
+		}
+
+		return &csi.NodeGetVolumeStatsResponse{
+			Usage: []*csi.VolumeUsage{
+				{
+					Unit:      csi.VolumeUsage_BYTES,
+					Total:     int64(statfs.Bsize) * int64(statfs.Blocks),
+					Available: int64(statfs.Bsize) * int64(statfs.Bfree),
+					Used:      int64(statfs.Bsize) * int64(statfs.Blocks-statfs.Bfree),
+				},
+				{
+					Unit:      csi.VolumeUsage_INODES,
+					Total:     int64(statfs.Files),
+					Available: int64(statfs.Ffree),
+					Used:      int64(statfs.Files - statfs.Ffree),
+				},
+			},
+		}, nil
+	} else if stat.Mode&unix.S_IFBLK == unix.S_IFBLK {
+		dev, err := os.Open(req.VolumePath)
+		if err != nil {
+			return nil, status.Errorf(codes.Unavailable, "failed opening device %q: %s", dev, err)
+		}
+		defer dev.Close()
+		size, err := dev.Seek(0, 2)
+		if err != nil {
+			return nil, status.Errorf(codes.Unavailable, "failed seeking to end of device %q: %s", dev, err)
+		}
+
+		return &csi.NodeGetVolumeStatsResponse{
+			Usage: []*csi.VolumeUsage{
+				{
+					Unit:  csi.VolumeUsage_BYTES,
+					Total: size,
+				},
+			},
+		}, nil
+
+	}
+
+	return nil, status.Error(codes.Unavailable, "cannot return stat")
 }
 
 func (ns *server) NodeExpandVolume(ctx context.Context, req *csi.NodeExpandVolumeRequest) (*csi.NodeExpandVolumeResponse, error) {
@@ -158,6 +209,13 @@ func (ns *server) NodeGetCapabilities(context.Context, *csi.NodeGetCapabilitiesR
 				Type: &csi.NodeServiceCapability_Rpc{
 					Rpc: &csi.NodeServiceCapability_RPC{
 						Type: csi.NodeServiceCapability_RPC_EXPAND_VOLUME,
+					},
+				},
+			},
+			{
+				Type: &csi.NodeServiceCapability_Rpc{
+					Rpc: &csi.NodeServiceCapability_RPC{
+						Type: csi.NodeServiceCapability_RPC_GET_VOLUME_STATS,
 					},
 				},
 			},
@@ -191,22 +249,19 @@ func (ns *server) extractVolumeContext(volumeContext map[string]string) (*volume
 }
 
 // isMountPoint returns true if path exists and is a mountpoint
-func isMountPoint(path string) bool {
-	var pathStat unix.Stat_t
-	if err := unix.Lstat(path, &pathStat); err != nil {
-		return false
+func isMountPoint(path string) (ismnt bool, stat unix.Stat_t) {
+	if err := unix.Stat(path, &stat); err != nil {
+		return
 	}
 
-	if pathStat.Mode&unix.S_IFDIR == unix.S_IFDIR {
+	if stat.Mode&unix.S_IFDIR == unix.S_IFDIR {
 		var parentStat unix.Stat_t
 		if err := unix.Stat(filepath.Dir(path), &parentStat); err != nil {
-			return false
+			return
 		}
 
-		if pathStat.Dev != parentStat.Dev {
-			return true
-		}
+		ismnt = stat.Dev != parentStat.Dev
 	}
 
-	return false
+	return
 }
