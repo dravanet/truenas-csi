@@ -7,7 +7,7 @@ import (
 )
 
 var (
-	driver  = "net.dravanet.truenas-csi"
+	driver  = "truenas-csi.dravanet.net"
 	version = "0.0.0"
 )
 

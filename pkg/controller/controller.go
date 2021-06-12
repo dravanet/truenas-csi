@@ -19,8 +19,8 @@ import (
 )
 
 const (
-	nasSelector    = "net.dravanet.truenas-csi/nas"
-	configSelector = "net.dravanet.truenas-csi/config"
+	nasSelector    = "truenas-csi.dravanet.net/nas"
+	configSelector = "truenas-csi.dravanet.net/config"
 )
 
 type server struct {

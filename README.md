@@ -22,7 +22,7 @@ On CreateVolume request, parameters may specify which TrueNAS to use, and also s
 
 Parameter name | Effect
 ---------------|--------
-net.dravanet.truenas-csi/nas | NAS Selection
-net.dravanet.truenas-csi/config | Sub-configuration selection
+truenas-csi.dravanet.net/nas | NAS Selection
+truenas-csi.dravanet.net/config | Sub-configuration selection
 
 Check [sample configuration](truenas-csi-controller.yml.sample).
