@@ -254,7 +254,7 @@ func isMountPoint(path string) (ismnt bool, stat unix.Stat_t) {
 		return
 	}
 
-	if stat.Mode&unix.S_IFDIR == unix.S_IFDIR {
+	if stat.Mode&unix.S_IFMT == unix.S_IFDIR {
 		var parentStat unix.Stat_t
 		if err := unix.Stat(filepath.Dir(path), &parentStat); err != nil {
 			return
