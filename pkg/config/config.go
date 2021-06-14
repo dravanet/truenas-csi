@@ -4,8 +4,8 @@ import (
 	"fmt"
 )
 
-// Configuration
-type Configuration map[string]*FreeNAS
+// CSIConfiguration
+type CSIConfiguration map[string]*FreeNAS
 
 // FreeNAS API access parameters
 type FreeNAS struct {
@@ -18,14 +18,16 @@ type FreeNAS struct {
 	// TrueNAS Core : ApiKey
 	APIKey string `yaml:"apikey,omitempty"`
 
-	// NFS Parameters
-	NFS map[string]*NFS `yaml:"nfs,omitempty"`
+	// NFS holds global nfs configuration
+	NFS *NFS `yaml:"nfs,omitempty"`
 
-	// ISCSI Parameters
-	ISCSI map[string]*ISCSI `yaml:"iscsi,omitempty"`
+	// ISCSI holds global iSCSI configuration
+	ISCSI *ISCSI `yaml:"iscsi,omitempty"`
 
-	name                 string
-	rootDsToDeletePolicy map[string]*DeletePolicy
+	Configurations map[string]*Configuration `yaml:"configurations,omitempty"`
+
+	name                  string
+	rootDsToConfiguration map[string]*Configuration
 }
 
 // Name return NAS configuration's name
@@ -41,23 +43,30 @@ const (
 	DeletePolicyRetain DeletePolicy = "retain"
 )
 
-// Common holds common configuration for nfs/iscsi shares
-type Common struct {
+// Configuration holds common configuration for nfs/iscsi shares
+type Configuration struct {
 	// RootDataset specifies the root dataset to allocate datasets under
 	RootDataset string `yaml:"rootdataset"`
+
+	// Sparse means to allocate sparse datasets/volumes (i.e. vithout refreservation)
+	// Quota will be enforced always.
+	Sparse bool `yaml:"sparse,omitempty"`
 
 	// AllocateEnabled specifies whether allocation is enabled from this configuration
 	AllocateEnabled bool `yaml:"allocateEnabled"`
 
 	// DeletePolicy specifies delete policy for this configuration
-	DeletePolicy *DeletePolicy `yaml:"deletePolicy"`
+	DeletePolicy DeletePolicy `yaml:"deletePolicy"`
+
+	// NFS holds nfs configuration
+	NFS *NFS `yaml:"nfs,omitempty"`
+
+	// ISCSI holds iSCSI configuration
+	ISCSI *ISCSI `yaml:"iscsi,omitempty"`
 }
 
 // NFS holds configuration for Filesystem Volumes
 type NFS struct {
-	// common parameters
-	Common `yaml:",inline"`
-
 	Server string `yaml:"server"`
 
 	AllowedHosts    []string `yaml:"allowedhosts"`
@@ -66,16 +75,12 @@ type NFS struct {
 
 // ISCSI holds configuration for Block Volumes
 type ISCSI struct {
-	// common parameters
-	Common `yaml:",inline"`
-
 	Portal   string `yaml:"portal"`
 	PortalID int    `yaml:"portalid"`
-	Sparse   bool   `yaml:"sparse,omitempty"`
 }
 
 // Validate validates configuration
-func (cfg *Configuration) Validate() error {
+func (cfg *CSIConfiguration) Validate() error {
 	for name, nas := range *cfg {
 		if err := nas.Validate(); err != nil {
 			return err
@@ -90,45 +95,41 @@ func (cfg *Configuration) Validate() error {
 // Validate checks configuration that sane values are specifies.
 // - performs uniqueness check among RootDatasets
 func (nas *FreeNAS) Validate() error {
-	nas.rootDsToDeletePolicy = make(map[string]*DeletePolicy)
+	nas.rootDsToConfiguration = make(map[string]*Configuration)
 
-	for _, nfs := range nas.NFS {
-		if _, ok := nas.rootDsToDeletePolicy[nfs.RootDataset]; ok {
-			return fmt.Errorf("RootDataset \"%s\" is duplicated in configuration", nfs.RootDataset)
+	for _, cfg := range nas.Configurations {
+		if _, ok := nas.rootDsToConfiguration[cfg.RootDataset]; ok {
+			return fmt.Errorf("RootDataset \"%s\" is duplicated in configuration", cfg.RootDataset)
 		}
 
-		if err := verifyDeletePolicy(&nfs.Common); err != nil {
+		if err := verifyDeletePolicy(cfg); err != nil {
 			return err
 		}
 
-		nas.rootDsToDeletePolicy[nfs.RootDataset] = nfs.DeletePolicy
-	}
-
-	for _, iscsi := range nas.ISCSI {
-		if _, ok := nas.rootDsToDeletePolicy[iscsi.RootDataset]; ok {
-			return fmt.Errorf("RootDataset \"%s\" is duplicated in configuration", iscsi.RootDataset)
+		// use global nfs/iscsi settings
+		if cfg.NFS == nil {
+			cfg.NFS = nas.NFS
+		}
+		if cfg.ISCSI == nil {
+			cfg.ISCSI = nas.ISCSI
 		}
 
-		if err := verifyDeletePolicy(&iscsi.Common); err != nil {
-			return err
-		}
-
-		nas.rootDsToDeletePolicy[iscsi.RootDataset] = iscsi.DeletePolicy
+		nas.rootDsToConfiguration[cfg.RootDataset] = cfg
 	}
 
 	return nil
 }
 
-func (cfg *FreeNAS) GetDeletePolicyForRootDataset(rootds string) *DeletePolicy {
-	return cfg.rootDsToDeletePolicy[rootds]
+func (cfg *FreeNAS) GetDeletePolicyForRootDataset(rootds string) DeletePolicy {
+	return cfg.rootDsToConfiguration[rootds].DeletePolicy
 }
 
-func verifyDeletePolicy(c *Common) error {
-	if c.DeletePolicy == nil {
-		return nil
-	}
+func (cfg *FreeNAS) GetSparseForRootDataset(rootds string) bool {
+	return cfg.rootDsToConfiguration[rootds].Sparse
+}
 
-	switch *c.DeletePolicy {
+func verifyDeletePolicy(c *Configuration) error {
+	switch c.DeletePolicy {
 	case DeletePolicyDelete, DeletePolicyRetain:
 	default:
 		return fmt.Errorf("Invalid deletePolicy specified")

@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"crypto/sha1"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
@@ -9,6 +10,7 @@ import (
 	"path"
 	"strings"
 
+	"github.com/tv42/zbase32"
 	"google.golang.org/grpc/codes"
 	status "google.golang.org/grpc/status"
 
@@ -24,7 +26,7 @@ const (
 )
 
 type server struct {
-	config config.Configuration
+	config config.CSIConfiguration
 
 	csi.UnimplementedControllerServer
 }
@@ -47,6 +49,23 @@ func (cs *server) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequest
 		nasName = "default"
 	}
 	nas := cs.config[nasName]
+	if nas == nil {
+		return nil, status.Errorf(codes.Unavailable, "No nas found with name %q", nasName)
+	}
+
+	cl, err := newTruenasOapiClient(nas)
+	if err != nil {
+		return nil, status.Errorf(codes.Unavailable, "creating TruenasOapi client failed for %q", nasName)
+	}
+
+	configName := req.GetParameters()[configSelector]
+	if configName == "" {
+		configName = "default"
+	}
+	cfg := nas.Configurations[configName]
+	if cfg == nil {
+		return nil, status.Errorf(codes.Unavailable, "No configuration found with name %q", configName)
+	}
 
 	// According to req.VolumeCapabilities, we must choose between nfs or iscsi
 	var iscsi bool
@@ -73,18 +92,106 @@ func (cs *server) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequest
 		return nil, status.Error(codes.InvalidArgument, "conflicting options")
 	}
 
-	var err error
-	var dataset string
-	var capacityBytes int64
+	if !iscsi && !nfs {
+		return nil, status.Error(codes.InvalidArgument, "Invalid VolumeCapabilities requested")
+	}
+
+	// Calculate capacity
+	capacityBytes := req.CapacityRange.GetLimitBytes()
+	if capacityBytes == 0 {
+		capacityBytes = req.CapacityRange.GetRequiredBytes()
+	}
+
+	// Prepare create request
+	datasetName := datasetFromReqName(req.Name)
+	dataset := path.Join(cfg.RootDataset, datasetName)
+	requestBody := TruenasOapi.PostPoolDatasetJSONRequestBody{
+		Name:     &dataset,
+		Comments: &req.Name,
+	}
+
+	if nfs {
+		// filesystem case
+		if cfg.NFS == nil {
+			return nil, status.Errorf(codes.Unavailable, "cannot provision nfs share for %q", req.Name)
+		}
+
+		voltype := TruenasOapi.PoolDatasetCreate0TypeFILESYSTEM
+		requestBody.Type = &voltype
+
+		refreservation := int(req.CapacityRange.GetRequiredBytes())
+		refquota := int(req.CapacityRange.GetLimitBytes())
+
+		if refreservation == 0 {
+			refreservation = refquota
+		} else if refquota == 0 {
+			refquota = refreservation
+		}
+
+		requestBody.Refquota = &refquota
+		if !cfg.Sparse {
+			requestBody.Refreservation = &refreservation
+		}
+	} else {
+		// iscsi case
+		if cfg.ISCSI == nil {
+			return nil, status.Errorf(codes.Unavailable, "cannot provision iscsi share for %q", req.Name)
+		}
+
+		voltype := TruenasOapi.PoolDatasetCreate0TypeVOLUME
+		requestBody.Type = &voltype
+
+		volsize := int(capacityBytes)
+		requestBody.Volsize = &volsize
+		requestBody.Sparse = &cfg.Sparse
+	}
+
+	createresp, err := cl.PostPoolDataset(ctx, requestBody)
+	if err != nil {
+		return nil, status.Errorf(codes.Unavailable, "failed provisioning %q: %+v", req.Name, err)
+	}
+
+	switch createresp.StatusCode {
+	case 200:
+		// Create succeeded
+		if nfs {
+			// Set permissions to world-writable
+			mode := "0777"
+			if _, err = handleNasResponse(cl.PostPoolDatasetIdIdPermission(ctx, dataset, TruenasOapi.PostPoolDatasetIdIdPermissionJSONRequestBody{
+				Acl:  &[]map[string]interface{}{},
+				Mode: &mode,
+			})); err != nil {
+				return nil, status.Errorf(codes.Unavailable, "failed setting permissions on dataset for %q", req.Name)
+			}
+		}
+	default:
+		// Create failed due to conflict or other errors
+		ds, err := cs.getDataset(ctx, cl, dataset)
+		if err != nil {
+			return nil, status.Errorf(codes.Unavailable, "failed querying existing dataset %q: %+v", dataset, err)
+		}
+
+		if ds == nil {
+			return nil, status.Errorf(codes.Unavailable, "failed querying existing dataset %q: not found", dataset)
+		}
+
+		if ds.Comments != req.Name {
+			return nil, status.Errorf(codes.Unavailable, "dataset for %q exists with different comment, perhaps hash collision?", req.Name)
+		}
+
+		if (nfs && capacityBytes != *ds.Refquota) || (iscsi && capacityBytes != *ds.Volsize) {
+			return nil, status.Errorf(codes.AlreadyExists, "capacity requirements changed for existing volume %q", req.Name)
+		}
+	}
+
 	var volumeContext *volumecontext.VolumeContext
 
 	switch {
 	case nfs:
-		dataset, capacityBytes, volumeContext, err = cs.createNFSVolume(ctx, req, nas)
+		volumeContext, err = cs.createNFSVolume(ctx, cl, cfg.NFS, req.Name, dataset)
 	case iscsi:
-		dataset, capacityBytes, volumeContext, err = cs.createISCSIVolume(ctx, req, nas)
+		volumeContext, err = cs.createISCSIVolume(ctx, cl, cfg.ISCSI, req.Name, dataset, datasetName)
 	default:
-		return nil, status.Error(codes.InvalidArgument, "Invalid VolumeCapabilities requested")
 	}
 
 	if err != nil {
@@ -128,21 +235,17 @@ func (cs *server) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequest
 	if di != nil {
 		dp := nas.GetDeletePolicyForRootDataset(path.Dir(dataset))
 
-		if dp != nil {
-			switch di.Type {
-			case "FILESYSTEM":
-				err = cs.deleteNFSVolume(ctx, cl, di)
-			case "VOLUME":
-				err = cs.deleteISCSIVolume(ctx, cl, di)
-			default:
-				err = status.Errorf(codes.InvalidArgument, "Received invalid response from NAS: %+v", di)
-			}
+		switch di.Type {
+		case "FILESYSTEM":
+			err = cs.deleteNFSVolume(ctx, cl, di)
+		case "VOLUME":
+			err = cs.deleteISCSIVolume(ctx, cl, di)
+		default:
+			err = status.Errorf(codes.InvalidArgument, "Received invalid response from NAS: %+v", di)
+		}
 
-			if err == nil {
-				err = cs.removeDataset(ctx, cl, di.ID, dp)
-			}
-		} else {
-			err = status.Errorf(codes.Internal, "Invalid internal configuration: no deletePolicy found")
+		if err == nil {
+			err = cs.removeDataset(ctx, cl, di.ID, dp)
 		}
 	}
 
@@ -242,13 +345,15 @@ func (cs *server) ControllerExpandVolume(ctx context.Context, req *csi.Controlle
 			return nil, err
 		}
 
-		if _, err = handleNasResponse(cl.PutPoolDatasetIdId(ctx, di.ID, TruenasOapi.PutPoolDatasetIdIdJSONRequestBody{
-			Refreservation: &refreservation,
-		})); err != nil {
-			return nil, err
+		if !nas.GetSparseForRootDataset(path.Dir(dataset)) {
+			if _, err = handleNasResponse(cl.PutPoolDatasetIdId(ctx, di.ID, TruenasOapi.PutPoolDatasetIdIdJSONRequestBody{
+				Refreservation: &refreservation,
+			})); err != nil {
+				return nil, err
+			}
 		}
 
-		capacity = int64(refreservation)
+		capacity = int64(refquota)
 
 	case "VOLUME":
 		volsize := int(req.CapacityRange.GetLimitBytes())
@@ -294,7 +399,7 @@ func (cs *server) ControllerGetCapabilities(ctx context.Context, req *csi.Contro
 }
 
 // New returns a new csi.ControllerServer
-func New(cfg config.Configuration) csi.ControllerServer {
+func New(cfg config.CSIConfiguration) csi.ControllerServer {
 	return &server{
 		config: cfg,
 	}
@@ -331,11 +436,11 @@ func truenasOapiFilter(key, value string) func(ctx context.Context, req *http.Re
 }
 
 type datasetInfo struct {
-	ID             string
-	Type           string
-	Comments       string
-	Refreservation *int64
-	Volsize        *int64
+	ID       string
+	Type     string
+	Comments string
+	Refquota *int64
+	Volsize  *int64
 }
 
 func (cs *server) getDataset(ctx context.Context, cl *TruenasOapi.Client, dataset string) (*datasetInfo, error) {
@@ -360,9 +465,9 @@ func (cs *server) getDataset(ctx context.Context, cl *TruenasOapi.Client, datase
 			Volsize *struct {
 				Parsed int64 `json:"parsed"`
 			} `json:"volsize"`
-			Refreservation *struct {
+			Refquota *struct {
 				Parsed int64 `json:"parsed"`
-			} `json:"refreservation"`
+			} `json:"refquota"`
 		}
 		if err = json.Unmarshal(body, &result); err != nil {
 			return nil, status.Errorf(codes.Unavailable, "Error parsing dataset from NAS: %+v", err)
@@ -378,8 +483,8 @@ func (cs *server) getDataset(ctx context.Context, cl *TruenasOapi.Client, datase
 		if result.Volsize != nil {
 			di.Volsize = &result.Volsize.Parsed
 		}
-		if result.Refreservation != nil {
-			di.Refreservation = &result.Refreservation.Parsed
+		if result.Refquota != nil {
+			di.Refquota = &result.Refquota.Parsed
 		}
 
 		return di, nil
@@ -392,10 +497,10 @@ func (cs *server) getDataset(ctx context.Context, cl *TruenasOapi.Client, datase
 
 // removeDataset removes or renames given dataset
 // TODO: implement rename
-func (cs *server) removeDataset(ctx context.Context, cl *TruenasOapi.Client, dataset string, dp *config.DeletePolicy) error {
+func (cs *server) removeDataset(ctx context.Context, cl *TruenasOapi.Client, dataset string, dp config.DeletePolicy) error {
 	var err error
 
-	if *dp == config.DeletePolicyDelete {
+	if dp == config.DeletePolicyDelete {
 		recursive := true
 
 		_, err = handleNasResponse(cl.DeletePoolDatasetIdId(ctx, dataset, TruenasOapi.DeletePoolDatasetIdIdJSONRequestBody{Recursive: &recursive}))
@@ -473,4 +578,10 @@ func (cs *server) parsevolumeid(volumeid string) (nas *config.FreeNAS, dataset s
 	dataset = parts[1]
 
 	return
+}
+
+func datasetFromReqName(reqName string) string {
+	hashed := sha1.Sum([]byte(reqName))
+
+	return zbase32.EncodeToString(hashed[:])
 }

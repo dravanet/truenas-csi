@@ -46,7 +46,7 @@ func main() {
 		if err != nil {
 			log.Fatal(err)
 		}
-		var cfg config.Configuration
+		var cfg config.CSIConfiguration
 		if err = yaml.Unmarshal(cfgData, &cfg); err != nil {
 			log.Fatal(err)
 		}

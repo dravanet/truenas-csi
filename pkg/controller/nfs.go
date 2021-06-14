@@ -5,97 +5,35 @@ import (
 	"encoding/json"
 	"fmt"
 	"path"
-	"strconv"
-	"strings"
 
-	"github.com/google/uuid"
 	"google.golang.org/grpc/codes"
 	status "google.golang.org/grpc/status"
 
 	"github.com/dravanet/truenas-csi/pkg/config"
-	"github.com/dravanet/truenas-csi/pkg/csi"
 	TruenasOapi "github.com/dravanet/truenas-csi/pkg/truenas"
 	"github.com/dravanet/truenas-csi/pkg/volumecontext"
 )
 
-func (cs *server) createNFSVolume(ctx context.Context, req *csi.CreateVolumeRequest, nas *config.FreeNAS) (
-	dataset string,
-	capacityBytes int64,
+func (cs *server) createNFSVolume(ctx context.Context, cl *TruenasOapi.Client, nfs *config.NFS, reqName string, dataset string) (
 	volumeContext *volumecontext.VolumeContext,
 	err error) {
 
-	cl, err := newTruenasOapiClient(nas)
-	if err != nil {
-		err = status.Error(codes.Unavailable, "creating FreenasOapi client failed")
-		return
-	}
+	paths := []string{path.Join("/mnt", dataset)}
 
-	nfs := cs.findNFSconfiguration(req, nas)
-	if nfs == nil {
-		err = status.Error(codes.InvalidArgument, "could not find a suitable nfs configuration")
-		return
-	}
-
-	var paths []string
-
-	capacityBytes = req.CapacityRange.GetRequiredBytes()
-	if capacityBytes == 0 {
-		capacityBytes = req.CapacityRange.GetLimitBytes()
-	}
-
-	share, err := cs.getNFSShareByComment(ctx, cl, req.Name)
+	share, err := cs.getNFSShareByComment(ctx, cl, reqName)
 	if err != nil {
 		return
 	}
 
 	if share == nil {
-		dataset = path.Join(nfs.RootDataset, uuid.NewString())
-
-		refreservation := int(req.CapacityRange.GetRequiredBytes())
-		refquota := int(req.CapacityRange.GetLimitBytes())
-
-		if refreservation == 0 {
-			refreservation = refquota
-		} else if refquota == 0 {
-			refquota = refreservation
-		}
-
-		if _, err = handleNasResponse(cl.PostPoolDataset(ctx, TruenasOapi.PostPoolDatasetJSONRequestBody{
-			Name:           &dataset,
-			Refreservation: &refreservation,
-			Refquota:       &refquota,
-			Comments:       &req.Name,
-		})); err != nil {
-			return
-		}
-
-		defer func() {
-			if err != nil {
-				recursive := true
-				cl.DeletePoolDatasetIdId(ctx, dataset, TruenasOapi.DeletePoolDatasetIdIdJSONRequestBody{
-					Recursive: &recursive,
-				})
-			}
-		}()
-
-		mode := "0777"
-		if _, err = handleNasResponse(cl.PostPoolDatasetIdIdPermission(ctx, dataset, TruenasOapi.PostPoolDatasetIdIdPermissionJSONRequestBody{
-			Acl:  &[]map[string]interface{}{},
-			Mode: &mode,
-		})); err != nil {
-			return
-		}
-
 		enabled := true
-		paths = []string{path.Join("/mnt", dataset)}
 		maprootuser := "root"
 		maprootgroup := "wheel"
 
-		var nfsID int
-		if nfsID, err = handleNasCreateResponse(cl.PostSharingNfs(ctx, TruenasOapi.PostSharingNfsJSONRequestBody{
+		if _, err = handleNasResponse(cl.PostSharingNfs(ctx, TruenasOapi.PostSharingNfsJSONRequestBody{
 			Enabled:      &enabled,
 			Paths:        &paths,
-			Comment:      &req.Name,
+			Comment:      &reqName,
 			Hosts:        &nfs.AllowedHosts,
 			Networks:     &nfs.AllowedNetworks,
 			MaprootUser:  &maprootuser,
@@ -103,43 +41,13 @@ func (cs *server) createNFSVolume(ctx context.Context, req *csi.CreateVolumeRequ
 		})); err != nil {
 			return
 		}
-		defer func() {
-			if err != nil {
-				cl.DeleteSharingNfsIdId(context.Background(), nfsID)
-			}
-		}()
-
-		comments := fmt.Sprintf("nfs:%d", nfsID)
-		if _, err = handleNasResponse(cl.PutPoolDatasetIdId(ctx, dataset, TruenasOapi.PutPoolDatasetIdIdJSONRequestBody{
-			Comments: &comments,
-		})); err != nil {
-			return
-		}
 	} else {
-		if share.Paths == nil || len(*share.Paths) != 1 {
-			err = status.Errorf(codes.Unavailable, "Unexpected data returned from NAS, invalid paths: %+v", share)
-			return
+		if len(share.Paths) != 1 {
+			return nil, fmt.Errorf("share %q uses more paths", reqName)
 		}
 
-		paths = *share.Paths
-		dataset = strings.TrimPrefix(paths[0], "/mnt/")
-
-		var ds *datasetInfo
-		ds, err = cs.getDataset(ctx, cl, dataset)
-		if err != nil {
-			return
-		}
-
-		if ds == nil {
-			err = status.Error(codes.Internal, "Dataset not found")
-			return
-		}
-
-		if ds.Refreservation != nil {
-			if capacityBytes != *ds.Refreservation {
-				err = status.Error(codes.AlreadyExists, "Creating existing volume with different capacity")
-				return
-			}
+		if share.Paths[0] != paths[0] {
+			return nil, fmt.Errorf("share %q uses dataset %q (expected: %q)", reqName, share.Paths[0], paths[0])
 		}
 	}
 
@@ -153,34 +61,44 @@ func (cs *server) createNFSVolume(ctx context.Context, req *csi.CreateVolumeRequ
 }
 
 func (cs *server) deleteNFSVolume(ctx context.Context, cl *TruenasOapi.Client, di *datasetInfo) error {
-	nfsID, err := strconv.ParseInt(strings.TrimPrefix(di.Comments, "nfs:"), 10, 32)
+	// Lookup nfs share
+	share, err := cs.getNFSShareByComment(ctx, cl, di.Comments)
 	if err != nil {
-		return status.Errorf(codes.InvalidArgument, "Failed parsing nfsID: %+v", err)
+		return err
 	}
 
-	if _, err = handleNasResponse(cl.DeleteSharingNfsIdId(ctx, int(nfsID))); err != nil {
-		return err
+	if share != nil {
+		// Delete nfs share
+		if _, err = handleNasResponse(cl.DeleteSharingNfsIdId(ctx, *share.ID)); err != nil {
+			return err
+		}
 	}
 
 	return nil
 }
 
-func (cs *server) getNFSShareByComment(ctx context.Context, cl *TruenasOapi.Client, comment string) (share *TruenasOapi.PostSharingNfsJSONBody, err error) {
+type nfsShare struct {
+	ID      *int     `json:"id"`
+	Comment *string  `json:"comment"`
+	Paths   []string `json:"paths"`
+}
+
+func (cs *server) getNFSShareByComment(ctx context.Context, cl *TruenasOapi.Client, comment string) (share *nfsShare, err error) {
 	var nfsshareresp []byte
 	if nfsshareresp, err = handleNasResponse(cl.GetSharingNfs(ctx, &TruenasOapi.GetSharingNfsParams{}, truenasOapiFilter("comment", comment))); err != nil {
 		return
 	}
-	var shares []TruenasOapi.PostSharingNfsJSONBody
+	var shares []nfsShare
 	if err = json.Unmarshal(nfsshareresp, &shares); err != nil {
 		return nil, status.Error(codes.Unavailable, "Error parsing NAS response")
 	}
-	for _, share := range shares {
-		if share.Comment == nil || *share.Comment != comment {
-			return nil, status.Errorf(codes.Unavailable, "Unexpected data returned from NAS, seems like filtering does not work: %+v", shares)
-		}
-	}
 	if len(shares) > 1 {
 		return nil, status.Errorf(codes.Unavailable, "Unexpected data returned from NAS, multiple items have same comment: %+v", shares)
+	}
+	if len(shares) == 1 {
+		if shares[0].Comment == nil || *shares[0].Comment != comment {
+			return nil, status.Errorf(codes.Unavailable, "Unexpected data returned from NAS, seems like filtering does not work: %+v", shares)
+		}
 	}
 
 	if len(shares) == 1 {
@@ -188,13 +106,4 @@ func (cs *server) getNFSShareByComment(ctx context.Context, cl *TruenasOapi.Clie
 	}
 
 	return
-}
-
-func (cs *server) findNFSconfiguration(req *csi.CreateVolumeRequest, nas *config.FreeNAS) *config.NFS {
-	configName := req.GetParameters()[configSelector]
-	if configName == "" {
-		configName = "default"
-	}
-
-	return nas.NFS[configName]
 }

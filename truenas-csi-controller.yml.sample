@@ -4,50 +4,54 @@ default:
   #password: root
   apiurl: http://nas.lan/api/v2.0
   apikey: "1-abcd..."
+  iscsi:
+    # ensure total zvol length is at most 63. Zvol full name
+    # will be <rootdataset>/<uuid>. uuid is 36 characters long.
+    # portal address for clients
+    portal: 192.168.0.11:3260
+    # portal id in TrueNAS
+    portalid: 1
+
   nfs:
+    # server address for clients
+    server: 192.168.0.11
+    allowedhosts: [] # single hosts to grant access for
+    allowednetworks: [192.168.0.0/24] # networks to grant access for
+
+  configurations:
     default:
       rootdataset: main/nfsroot
       allocateEnabled: true
       deletePolicy: delete
-      # server address for clients
-      server: 192.168.0.11
-      allowedhosts: [] # single hosts to grant access for
-      allowednetworks: [] # networks to grant access for
 
-  iscsi:
-    default:
-      # ensure total zvol length is at most 63. Zvol full name
-      # will be <rootdataset>/<uuid>. uuid is 36 characters long.
-      rootdataset: main/iroot
-      allocateEnabled: true
-      deletePolicy: delete
-      # portal address for clients
-      portal: 192.168.0.11:3260
-      # portal id in TrueNAS
-      portalid: 1
       # Create sparse volumes
       sparse: false
+
 
     sparse:
       rootdataset: main/isparse
       allocateEnabled: true
       deletePolicy: delete
-      # portal address for clients
-      portal: 192.168.0.11:3260
-      # portal id in TrueNAS
-      portalid: 1
       # Create sparse volumes
       sparse: true
+
+      iscsi:
+        # portal address for clients
+        portal: 192.168.0.11:3260
+        # portal id in TrueNAS
+        portalid: 2
 
 nas-2:
   apiurl: http://nas-2.lan/api/v2.0
   apikey: "1-abcd..."
-  nfs:
+  configurations:
     default:
       rootdataset: main/nfsroot
       allocateEnabled: true
       deletePolicy: delete
-      # server address for clients
-      server: 192.168.0.12
-      allowedhosts: [] # single hosts to grant access for
-      allowednetworks: [] # networks to grant access for
+      # nfs parametes specified explicitly for this configuration
+      nfs:
+        # server address for clients
+        server: 192.168.0.12
+        allowedhosts: [] # single hosts to grant access for
+        allowednetworks: [] # networks to grant access for
