@@ -12,13 +12,8 @@ import (
 )
 
 func (ns *server) publishNFSVolume(ctx context.Context, req *csi.NodePublishVolumeRequest, nfs *volumecontext.NFS) error {
-	cap := req.GetVolumeCapability()
-	if cap == nil {
-		return status.Errorf(codes.FailedPrecondition, "Volume capability not specified")
-	}
-
 	switch {
-	case cap.GetMount() != nil:
+	case req.VolumeCapability.GetMount() != nil:
 		ismnt, _ := isMountPoint(req.TargetPath)
 		if !ismnt {
 			os.Mkdir(req.TargetPath, 0o755)

@@ -62,7 +62,7 @@ func (ns *server) stageISCSIVolume(ctx context.Context, req *csi.NodeStageVolume
 		return status.Errorf(codes.Unavailable, "Error creating symlink: %+v", err)
 	}
 
-	if mount := req.GetVolumeCapability().GetMount(); mount != nil {
+	if mount := req.VolumeCapability.GetMount(); mount != nil {
 		blkidErr := execCmd(ctx, "blkid", "-p", devicePath)
 		if blkidErr != nil {
 			if exitError, ok := blkidErr.(*exec.ExitError); ok && exitError.ExitCode() == 2 {
@@ -95,13 +95,8 @@ func (ns *server) unstageISCSIVolume(ctx context.Context, target string) (err er
 }
 
 func (ns *server) publishISCSIVolume(ctx context.Context, req *csi.NodePublishVolumeRequest) error {
-	cap := req.GetVolumeCapability()
-	if cap == nil {
-		return status.Errorf(codes.FailedPrecondition, "Volume capability not specified")
-	}
-
 	switch {
-	case cap.GetBlock() != nil:
+	case req.VolumeCapability.GetBlock() != nil:
 		device, err := os.Readlink(path.Join(req.StagingTargetPath, "device"))
 		if err != nil {
 			return status.Errorf(codes.Unavailable, "error reading symlink")
@@ -113,7 +108,7 @@ func (ns *server) publishISCSIVolume(ctx context.Context, req *csi.NodePublishVo
 				return status.Errorf(codes.Unavailable, "Failed creating symlink at TargetPath")
 			}
 		}
-	case cap.GetMount() != nil:
+	case req.VolumeCapability.GetMount() != nil:
 		ismnt, _ := isMountPoint(req.TargetPath)
 		if !ismnt {
 			os.Mkdir(req.TargetPath, 0o755)

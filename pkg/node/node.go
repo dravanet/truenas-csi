@@ -32,12 +32,13 @@ func (ns *server) NodeStageVolume(ctx context.Context, req *csi.NodeStageVolumeR
 		return nil, status.Error(codes.InvalidArgument, "VolumeId not provided")
 	}
 
+	// from here req is not null
+
 	if req.StagingTargetPath == "" {
 		return nil, status.Error(codes.InvalidArgument, "StagingTargetPath not provided")
 	}
 
-	cap := req.GetVolumeCapability()
-	if cap == nil {
+	if req.VolumeCapability == nil {
 		return nil, status.Error(codes.InvalidArgument, "VolumeCapability not provided")
 	}
 
@@ -46,7 +47,7 @@ func (ns *server) NodeStageVolume(ctx context.Context, req *csi.NodeStageVolumeR
 		return nil, status.Errorf(codes.FailedPrecondition, "Invalid volume context received: %+v", err)
 	}
 
-	if cap.GetBlock() != nil {
+	if req.VolumeCapability.GetBlock() != nil {
 		if volumeContext.Iscsi == nil {
 			return nil, status.Error(codes.InvalidArgument, "Cannot publish nfs volume as block")
 		}
@@ -65,6 +66,8 @@ func (ns *server) NodeUnstageVolume(ctx context.Context, req *csi.NodeUnstageVol
 	if req.GetVolumeId() == "" {
 		return nil, status.Error(codes.InvalidArgument, "VolumeId not provided")
 	}
+
+	// from here req is not null
 
 	if req.StagingTargetPath == "" {
 		return nil, status.Error(codes.InvalidArgument, "StagingTargetPath not provided")
@@ -87,11 +90,13 @@ func (ns *server) NodePublishVolume(ctx context.Context, req *csi.NodePublishVol
 		return nil, status.Error(codes.InvalidArgument, "VolumeId not provided")
 	}
 
+	// from here req is not null
+
 	if req.TargetPath == "" {
 		return nil, status.Error(codes.InvalidArgument, "TargetPath not provided")
 	}
 
-	if req.GetVolumeCapability() == nil {
+	if req.VolumeCapability == nil {
 		return nil, status.Error(codes.InvalidArgument, "VolumeCapability not provided")
 	}
 
@@ -126,6 +131,8 @@ func (ns *server) NodeUnpublishVolume(ctx context.Context, req *csi.NodeUnpublis
 		return nil, status.Error(codes.InvalidArgument, "VolumeId not provided")
 	}
 
+	// from here req is not null
+
 	if req.TargetPath == "" {
 		return nil, status.Error(codes.InvalidArgument, "TargetPath not provided")
 	}
@@ -157,6 +164,8 @@ func (ns *server) NodeGetVolumeStats(ctx context.Context, req *csi.NodeGetVolume
 	if req.GetVolumeId() == "" {
 		return nil, status.Error(codes.InvalidArgument, "VolumeId not provided")
 	}
+
+	// from here req is not null
 
 	if req.VolumePath == "" {
 		return nil, status.Error(codes.InvalidArgument, "TargetPath not provided")
@@ -215,6 +224,8 @@ func (ns *server) NodeExpandVolume(ctx context.Context, req *csi.NodeExpandVolum
 	if req.GetVolumeId() == "" {
 		return nil, status.Error(codes.InvalidArgument, "VolumeId not provided")
 	}
+
+	// from here req is not null
 
 	if req.VolumePath == "" {
 		return nil, status.Error(codes.InvalidArgument, "VolumePath not provided")
