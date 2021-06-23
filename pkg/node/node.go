@@ -141,6 +141,14 @@ func (ns *server) NodeUnpublishVolume(ctx context.Context, req *csi.NodeUnpublis
 }
 
 func (ns *server) NodeGetVolumeStats(ctx context.Context, req *csi.NodeGetVolumeStatsRequest) (*csi.NodeGetVolumeStatsResponse, error) {
+	if req.GetVolumeId() == "" {
+		return nil, status.Error(codes.InvalidArgument, "VolumeId not provided")
+	}
+
+	if req.VolumePath == "" {
+		return nil, status.Error(codes.InvalidArgument, "TargetPath not provided")
+	}
+
 	ismnt, stat := isMountPoint(req.VolumePath)
 
 	if ismnt {
@@ -187,7 +195,7 @@ func (ns *server) NodeGetVolumeStats(ctx context.Context, req *csi.NodeGetVolume
 
 	}
 
-	return nil, status.Error(codes.Unavailable, "cannot return stat")
+	return nil, status.Error(codes.NotFound, "volume not found")
 }
 
 func (ns *server) NodeExpandVolume(ctx context.Context, req *csi.NodeExpandVolumeRequest) (*csi.NodeExpandVolumeResponse, error) {
