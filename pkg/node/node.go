@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+	"syscall"
 	"time"
 
 	"golang.org/x/sys/unix"
@@ -268,8 +269,8 @@ func execCmd(ctx context.Context, name string, arg ...string) error {
 }
 
 func umount(ctx context.Context, path string) (busy bool, err error) {
-	if err = execCmd(ctx, "umount", path); err != nil {
-		if code, ok := err.(*exec.ExitError); ok && code.ExitCode() == 32 {
+	if err = syscall.Unmount(path, 0); err != nil {
+		if errno, ok := err.(syscall.Errno); ok && errno == syscall.EBUSY {
 			busy = true
 		}
 	}
