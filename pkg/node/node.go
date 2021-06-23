@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+	"time"
 
 	"golang.org/x/sys/unix"
 	"google.golang.org/grpc/codes"
@@ -130,7 +131,18 @@ func (ns *server) NodeUnpublishVolume(ctx context.Context, req *csi.NodeUnpublis
 
 	ismnt, _ := isMountPoint(req.TargetPath)
 	if ismnt {
-		if err := execCmd(ctx, "umount", req.TargetPath); err != nil {
+		sleep := 25 * time.Millisecond
+
+		busy, err := umount(ctx, req.TargetPath)
+
+		for i := 0; busy && i < 6; i++ {
+			time.Sleep(sleep)
+			sleep += sleep
+
+			busy, err = umount(ctx, req.TargetPath)
+		}
+
+		if err != nil {
 			return nil, status.Errorf(codes.Unavailable, "Umount failed: %+v", err)
 		}
 	}
@@ -253,6 +265,16 @@ func execCmd(ctx context.Context, name string, arg ...string) error {
 	cmd := exec.CommandContext(ctx, name, arg...)
 
 	return cmd.Run()
+}
+
+func umount(ctx context.Context, path string) (busy bool, err error) {
+	if err = execCmd(ctx, "umount", path); err != nil {
+		if code, ok := err.(*exec.ExitError); ok && code.ExitCode() == 32 {
+			busy = true
+		}
+	}
+
+	return
 }
 
 func (ns *server) extractVolumeContext(volumeContext map[string]string) (*volumecontext.VolumeContext, error) {
