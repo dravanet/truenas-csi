@@ -36,10 +36,6 @@ func (cs *server) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequest
 		return nil, status.Error(codes.InvalidArgument, "No name specified")
 	}
 
-	if req.CapacityRange.GetRequiredBytes() == 0 && req.CapacityRange.GetLimitBytes() == 0 {
-		return nil, status.Error(codes.InvalidArgument, "No capacity requirements specified")
-	}
-
 	if len(req.VolumeCapabilities) == 0 {
 		return nil, status.Error(codes.InvalidArgument, "No VolumeCapabilities specified")
 	}
@@ -97,9 +93,18 @@ func (cs *server) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequest
 	}
 
 	// Calculate capacity
-	capacityBytes := req.CapacityRange.GetLimitBytes()
+	capacityrange := req.GetCapacityRange()
+	if capacityrange == nil {
+		// Default capacity of 1Gi
+		capacityrange = &csi.CapacityRange{
+			RequiredBytes: 1 << 30,
+			LimitBytes:    1 << 30,
+		}
+	}
+
+	capacityBytes := capacityrange.GetLimitBytes()
 	if capacityBytes == 0 {
-		capacityBytes = req.CapacityRange.GetRequiredBytes()
+		capacityBytes = capacityrange.GetRequiredBytes()
 	}
 
 	// Prepare create request
@@ -119,8 +124,8 @@ func (cs *server) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequest
 		voltype := TruenasOapi.PoolDatasetCreate0TypeFILESYSTEM
 		requestBody.Type = &voltype
 
-		refreservation := int(req.CapacityRange.GetRequiredBytes())
-		refquota := int(req.CapacityRange.GetLimitBytes())
+		refreservation := int(capacityrange.GetRequiredBytes())
+		refquota := int(capacityrange.GetLimitBytes())
 
 		if refreservation == 0 {
 			refreservation = refquota
@@ -128,8 +133,10 @@ func (cs *server) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequest
 			refquota = refreservation
 		}
 
-		requestBody.Refquota = &refquota
-		if !cfg.Sparse {
+		if refquota > 0 {
+			requestBody.Refquota = &refquota
+		}
+		if refreservation > 0 && !cfg.Sparse {
 			requestBody.Refreservation = &refreservation
 		}
 	} else {
