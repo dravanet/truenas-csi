@@ -34,13 +34,20 @@ func (ns *server) NodeStageVolume(ctx context.Context, req *csi.NodeStageVolumeR
 		return nil, status.Error(codes.InvalidArgument, "StagingTargetPath not provided")
 	}
 
-	if req.GetVolumeCapability() == nil {
-		return nil, status.Error(codes.InvalidArgument, "VolumeCapability not provided")
-	}
-
 	volumeContext, err := ns.extractVolumeContext(req.VolumeContext)
 	if err != nil {
 		return nil, status.Errorf(codes.FailedPrecondition, "Invalid volume context received: %+v", err)
+	}
+
+	cap := req.GetVolumeCapability()
+	if cap == nil {
+		return nil, status.Error(codes.InvalidArgument, "VolumeCapability not provided")
+	}
+
+	if cap.GetBlock() != nil {
+		if volumeContext.Iscsi == nil {
+			return nil, status.Error(codes.InvalidArgument, "Cannot publish nfs volume as block")
+		}
 	}
 
 	if volumeContext.Iscsi != nil {
