@@ -130,7 +130,7 @@ func (ns *server) publishISCSIVolume(ctx context.Context, req *csi.NodePublishVo
 
 func (ns *server) iscsiNodeExpandVolume(ctx context.Context, req *csi.NodeExpandVolumeRequest) (*csi.NodeExpandVolumeResponse, error) {
 	if req.StagingTargetPath == "" {
-		return nil, status.Errorf(codes.InvalidArgument, "StagingTargetPath not provided")
+		return nil, status.Errorf(codes.NotFound, "StagingTargetPath not provided")
 	}
 
 	device, err := filepath.EvalSymlinks(path.Join(req.StagingTargetPath, "device"))
