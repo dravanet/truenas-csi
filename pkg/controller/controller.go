@@ -36,11 +36,13 @@ func (cs *server) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequest
 		return nil, status.Error(codes.InvalidArgument, "No name specified")
 	}
 
+	// from here req is not null
+
 	if len(req.VolumeCapabilities) == 0 {
 		return nil, status.Error(codes.InvalidArgument, "No VolumeCapabilities specified")
 	}
 
-	nasName := req.GetParameters()[nasSelector]
+	nasName := req.Parameters[nasSelector]
 	if nasName == "" {
 		nasName = "default"
 	}
@@ -54,7 +56,7 @@ func (cs *server) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequest
 		return nil, status.Errorf(codes.Unavailable, "creating TruenasOapi client failed for %q", nasName)
 	}
 
-	configName := req.GetParameters()[configSelector]
+	configName := req.Parameters[configSelector]
 	if configName == "" {
 		configName = "default"
 	}
@@ -93,7 +95,7 @@ func (cs *server) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequest
 	}
 
 	// Calculate capacity
-	capacityrange := req.GetCapacityRange()
+	capacityrange := req.CapacityRange
 	if capacityrange == nil {
 		// Default capacity of 1Gi
 		capacityrange = &csi.CapacityRange{
@@ -102,9 +104,9 @@ func (cs *server) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequest
 		}
 	}
 
-	capacityBytes := capacityrange.GetLimitBytes()
+	capacityBytes := capacityrange.LimitBytes
 	if capacityBytes == 0 {
-		capacityBytes = capacityrange.GetRequiredBytes()
+		capacityBytes = capacityrange.RequiredBytes
 	}
 
 	// Prepare create request
@@ -124,8 +126,8 @@ func (cs *server) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequest
 		voltype := TruenasOapi.PoolDatasetCreate0TypeFILESYSTEM
 		requestBody.Type = &voltype
 
-		refreservation := int(capacityrange.GetRequiredBytes())
-		refquota := int(capacityrange.GetLimitBytes())
+		refreservation := int(capacityrange.RequiredBytes)
+		refquota := int(capacityrange.LimitBytes)
 
 		if refreservation == 0 {
 			refreservation = refquota
@@ -225,7 +227,9 @@ func (cs *server) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequest
 		return nil, status.Error(codes.InvalidArgument, "No VolumeId specified")
 	}
 
-	nas, dataset, err := cs.parsevolumeid(req.GetVolumeId())
+	// from here req is not null
+
+	nas, dataset, err := cs.parsevolumeid(req.VolumeId)
 	if err != nil {
 		return &csi.DeleteVolumeResponse{}, nil
 	}
@@ -269,7 +273,9 @@ func (cs *server) ValidateVolumeCapabilities(ctx context.Context, req *csi.Valid
 		return nil, status.Error(codes.InvalidArgument, "No VolumeCapabilities specified")
 	}
 
-	nas, dataset, err := cs.parsevolumeid(req.GetVolumeId())
+	// from here req is not null
+
+	nas, dataset, err := cs.parsevolumeid(req.VolumeId)
 	if err != nil {
 		return nil, err
 	}
@@ -314,7 +320,13 @@ func (cs *server) ValidateVolumeCapabilities(ctx context.Context, req *csi.Valid
 
 // Expand volume
 func (cs *server) ControllerExpandVolume(ctx context.Context, req *csi.ControllerExpandVolumeRequest) (*csi.ControllerExpandVolumeResponse, error) {
-	nas, dataset, err := cs.parsevolumeid(req.GetVolumeId())
+	if req.GetVolumeId() == "" {
+		return nil, status.Error(codes.InvalidArgument, "No VolumeId specified")
+	}
+
+	// from here req is not null
+
+	nas, dataset, err := cs.parsevolumeid(req.VolumeId)
 	if err != nil {
 		return nil, err
 	}
@@ -337,8 +349,8 @@ func (cs *server) ControllerExpandVolume(ctx context.Context, req *csi.Controlle
 
 	switch di.Type {
 	case "FILESYSTEM":
-		refreservation := int(req.CapacityRange.GetRequiredBytes())
-		refquota := int(req.CapacityRange.GetLimitBytes())
+		refreservation := int(req.CapacityRange.RequiredBytes)
+		refquota := int(req.CapacityRange.LimitBytes)
 
 		if refreservation == 0 {
 			refreservation = refquota
@@ -363,9 +375,9 @@ func (cs *server) ControllerExpandVolume(ctx context.Context, req *csi.Controlle
 		capacity = int64(refquota)
 
 	case "VOLUME":
-		volsize := int(req.CapacityRange.GetLimitBytes())
+		volsize := int(req.CapacityRange.LimitBytes)
 		if volsize == 0 {
-			volsize = int(req.CapacityRange.GetRequiredBytes())
+			volsize = int(req.CapacityRange.RequiredBytes)
 		}
 
 		if _, err = handleNasResponse(cl.PutPoolDatasetIdId(ctx, di.ID, TruenasOapi.PutPoolDatasetIdIdJSONRequestBody{
