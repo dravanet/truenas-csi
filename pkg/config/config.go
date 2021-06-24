@@ -45,23 +45,20 @@ const (
 
 // Configuration holds common configuration for nfs/iscsi shares
 type Configuration struct {
-	// RootDataset specifies the root dataset to allocate datasets under
-	RootDataset string `yaml:"rootdataset"`
+	// Dataset specifies the dataset to hold volumes
+	Dataset string `yaml:"dataset"`
 
-	// Sparse means to allocate sparse datasets/volumes (i.e. vithout refreservation)
+	// Sparse means to allocate sparse datasets/volumes (i.e. without refreservation)
 	// Quota will be enforced always.
 	Sparse bool `yaml:"sparse,omitempty"`
-
-	// AllocateEnabled specifies whether allocation is enabled from this configuration
-	AllocateEnabled bool `yaml:"allocateEnabled"`
 
 	// DeletePolicy specifies delete policy for this configuration
 	DeletePolicy DeletePolicy `yaml:"deletePolicy"`
 
-	// NFS holds nfs configuration
+	// NFS holds nfs sub-configuration
 	NFS *NFS `yaml:"nfs,omitempty"`
 
-	// ISCSI holds iSCSI configuration
+	// ISCSI holds iSCSI sub-configuration
 	ISCSI *ISCSI `yaml:"iscsi,omitempty"`
 }
 
@@ -98,8 +95,8 @@ func (nas *FreeNAS) Validate() error {
 	nas.rootDsToConfiguration = make(map[string]*Configuration)
 
 	for _, cfg := range nas.Configurations {
-		if _, ok := nas.rootDsToConfiguration[cfg.RootDataset]; ok {
-			return fmt.Errorf("RootDataset \"%s\" is duplicated in configuration", cfg.RootDataset)
+		if _, ok := nas.rootDsToConfiguration[cfg.Dataset]; ok {
+			return fmt.Errorf("RootDataset \"%s\" is duplicated in configuration", cfg.Dataset)
 		}
 
 		if err := verifyDeletePolicy(cfg); err != nil {
@@ -114,7 +111,7 @@ func (nas *FreeNAS) Validate() error {
 			cfg.ISCSI = nas.ISCSI
 		}
 
-		nas.rootDsToConfiguration[cfg.RootDataset] = cfg
+		nas.rootDsToConfiguration[cfg.Dataset] = cfg
 	}
 
 	return nil

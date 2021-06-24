@@ -4,15 +4,13 @@ default:
   #password: root
   apiurl: http://nas.lan/api/v2.0
   apikey: "1-abcd..."
-  iscsi:
-    # ensure total zvol length is at most 63. Zvol full name
-    # will be <rootdataset>/<uuid>. uuid is 36 characters long.
+  iscsi: # Global iscsi configuration
     # portal address for clients
     portal: 192.168.0.11:3260
     # portal id in TrueNAS
     portalid: 1
 
-  nfs:
+  nfs: # Global nfs configuration
     # server address for clients
     server: 192.168.0.11
     allowedhosts: [] # single hosts to grant access for
@@ -20,34 +18,21 @@ default:
 
   configurations:
     default:
-      rootdataset: main/nfsroot
-      allocateEnabled: true
+      # For iscsi volumes, ensure total zvol length is at most 63. Zvol full name
+      # will be zvol/<dataset>/<name>. name is generated, and is 32 characters long.
+      # So, rootdataset name should be no longer than 25 characters.
+      dataset: hddpool/csi
       deletePolicy: delete
 
       # Create sparse volumes
       sparse: false
-
-
-    sparse:
-      rootdataset: main/isparse
-      allocateEnabled: true
-      deletePolicy: delete
-      # Create sparse volumes
-      sparse: true
-
-      iscsi:
-        # portal address for clients
-        portal: 192.168.0.11:3260
-        # portal id in TrueNAS
-        portalid: 2
 
 nas-2:
   apiurl: http://nas-2.lan/api/v2.0
   apikey: "1-abcd..."
   configurations:
     default:
-      rootdataset: main/nfsroot
-      allocateEnabled: true
+      dataset: main
       deletePolicy: delete
       # nfs parametes specified explicitly for this configuration
       nfs:

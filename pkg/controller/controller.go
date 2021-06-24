@@ -111,7 +111,7 @@ func (cs *server) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequest
 
 	// Prepare create request
 	datasetName := datasetFromReqName(req.Name)
-	dataset := path.Join(cfg.RootDataset, datasetName)
+	dataset := path.Join(cfg.Dataset, datasetName)
 	requestBody := TruenasOapi.PostPoolDatasetJSONRequestBody{
 		Name:     &dataset,
 		Comments: &req.Name,

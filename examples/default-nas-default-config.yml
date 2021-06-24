@@ -1,0 +1,25 @@
+---
+default:
+  #username: root
+  #password: root
+  apiurl: http://nas.lan/api/v2.0
+  apikey: "1-abcd..."
+  iscsi: # Global iscsi configuration
+    # portal address for clients
+    portal: 192.168.0.11:3260
+    # portal id in TrueNAS
+    portalid: 1
+
+  nfs: # Global nfs configuration
+    # server address for clients
+    server: 192.168.0.11
+    allowedhosts: [] # single hosts to grant access for
+    allowednetworks: [192.168.0.0/24] # networks to grant access for
+
+  configurations:
+    default:
+      # For iscsi volumes, ensure total zvol length is at most 63. Zvol full name
+      # will be zvol/<dataset>/<name>. name is generated, and is 32 characters long.
+      # So, rootdataset name should be no longer than 25 characters.
+      dataset: hddpool/csi
+      deletePolicy: delete
