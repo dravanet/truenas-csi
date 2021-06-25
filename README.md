@@ -103,3 +103,4 @@ truenas-csi.dravanet.net/config | Sub-configuration selection
 
 - [TrueNAS](https://www.truenas.com/) itself is the NAS solution
 - [democratic-csi](https://github.com/democratic-csi/democratic-csi) is an existing implementation
+- [ganeti-extstorage-csi](https://github.com/dravanet/ganeti-extstorage-csi) is a Ganeti external storage driver utilizing CSI
