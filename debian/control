@@ -1,0 +1,12 @@
+Source: truenas-csi
+Section: net
+Priority: optional
+Maintainer: Richard Kojedzinszky <richard@kojedz.in>
+Build-Depends: debhelper (>= 11)
+Standards-Version: 4.1.3
+
+Package: truenas-csi
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}, e2fsprogs, xfsprogs, open-iscsi, nfs-common
+Description: TrueNAS CSI driver
+ TrueNAS-CSI is a CSI driver for TrueNAS systems, utilizing TrueNAS API.

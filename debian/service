@@ -1,0 +1,12 @@
+[Unit]
+Description=TrueNAS CSI Driver
+
+[Service]
+Environment=GOGC=50
+EnvironmentFile=-/etc/default/truenas-csi
+ExecStart=/usr/sbin/truenas-csi
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

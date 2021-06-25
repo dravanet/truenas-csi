@@ -1,0 +1,14 @@
+# Defaults for TrueNAS-CSI
+#CONTROLLER_CONFIG=/etc/truenas-csi/controller.yml
+
+# CSI Endpoint address
+CSI_ENDPOINT=unix:///run/csi.sock
+#CSI_ENDPOINT=tcp:0.0.0.0:21609
+
+# TLS Parameters
+# TLS Certificate Authority
+#TLS_CA=/etc/truenas-csi/ca.pem
+# TLS Certificate
+#TLS_CERT=/etc/truenas-csi/server.pem
+# TLS Private key
+#TLS_KEY=/etc/truenas-csi/server.key
