@@ -65,33 +65,20 @@ func (cs *server) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequest
 		return nil, status.Errorf(codes.Unavailable, "No configuration found with name %q", configName)
 	}
 
-	// According to req.VolumeCapabilities, we must choose between nfs or iscsi
-	var iscsi bool
-	var nfs bool
+	// According to req.VolumeCapabilities, filter out possible volume types
+	volume := true
+	filesystem := true
 
 	for _, cap := range req.VolumeCapabilities {
 		switch {
 		case cap.GetBlock() != nil:
-			iscsi = true
+			filesystem = false
 		case cap.GetMount() != nil:
-			if am := cap.GetAccessMode(); am != nil {
-				switch am.GetMode() {
-				case csi.VolumeCapability_AccessMode_SINGLE_NODE_WRITER, csi.VolumeCapability_AccessMode_SINGLE_NODE_READER_ONLY:
-					iscsi = true
-				default:
-					nfs = true
-				}
+			switch cap.GetAccessMode().GetMode() {
+			case csi.VolumeCapability_AccessMode_MULTI_NODE_READER_ONLY, csi.VolumeCapability_AccessMode_MULTI_NODE_SINGLE_WRITER, csi.VolumeCapability_AccessMode_MULTI_NODE_MULTI_WRITER:
+				volume = false
 			}
 		}
-	}
-
-	// if we end up with conflicting request, return an error
-	if iscsi && nfs {
-		return nil, status.Error(codes.InvalidArgument, "conflicting options")
-	}
-
-	if !iscsi && !nfs {
-		return nil, status.Error(codes.InvalidArgument, "Invalid VolumeCapabilities requested")
 	}
 
 	// Calculate capacity
@@ -117,8 +104,23 @@ func (cs *server) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequest
 		Comments: &req.Name,
 	}
 
-	if nfs {
-		// filesystem case
+	// Prefer zvol creation
+	switch {
+	case volume:
+		// Create zvol
+		if cfg.ISCSI == nil {
+			return nil, status.Errorf(codes.Unavailable, "cannot provision iscsi share for %q", req.Name)
+		}
+
+		voltype := TruenasOapi.PoolDatasetCreate0TypeVOLUME
+		requestBody.Type = &voltype
+
+		volsize := int(capacityBytes)
+		requestBody.Volsize = &volsize
+		requestBody.Sparse = &cfg.Sparse
+
+	case filesystem:
+		// Create filesystem
 		if cfg.NFS == nil {
 			return nil, status.Errorf(codes.Unavailable, "cannot provision nfs share for %q", req.Name)
 		}
@@ -141,18 +143,8 @@ func (cs *server) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequest
 		if refreservation > 0 && !cfg.Sparse {
 			requestBody.Refreservation = &refreservation
 		}
-	} else {
-		// iscsi case
-		if cfg.ISCSI == nil {
-			return nil, status.Errorf(codes.Unavailable, "cannot provision iscsi share for %q", req.Name)
-		}
-
-		voltype := TruenasOapi.PoolDatasetCreate0TypeVOLUME
-		requestBody.Type = &voltype
-
-		volsize := int(capacityBytes)
-		requestBody.Volsize = &volsize
-		requestBody.Sparse = &cfg.Sparse
+	default:
+		return nil, status.Error(codes.InvalidArgument, "Invalid VolumeCapabilities requested")
 	}
 
 	createresp, err := cl.PostPoolDataset(ctx, requestBody)
@@ -163,7 +155,7 @@ func (cs *server) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequest
 	switch createresp.StatusCode {
 	case 200:
 		// Create succeeded
-		if nfs {
+		if filesystem {
 			// Set permissions to world-writable
 			mode := "0777"
 			if _, err = handleNasResponse(cl.PostPoolDatasetIdIdPermission(ctx, dataset, TruenasOapi.PostPoolDatasetIdIdPermissionJSONRequestBody{
@@ -188,7 +180,7 @@ func (cs *server) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequest
 			return nil, status.Errorf(codes.Unavailable, "dataset for %q exists with different comment, perhaps hash collision?", req.Name)
 		}
 
-		if (nfs && capacityBytes != *ds.Refquota) || (iscsi && capacityBytes != *ds.Volsize) {
+		if (filesystem && capacityBytes != *ds.Refquota) || (volume && capacityBytes != *ds.Volsize) {
 			return nil, status.Errorf(codes.AlreadyExists, "capacity requirements changed for existing volume %q", req.Name)
 		}
 	}
@@ -196,11 +188,10 @@ func (cs *server) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequest
 	var volumeContext *volumecontext.VolumeContext
 
 	switch {
-	case nfs:
-		volumeContext, err = cs.createNFSVolume(ctx, cl, cfg.NFS, req.Name, dataset)
-	case iscsi:
+	case volume:
 		volumeContext, err = cs.createISCSIVolume(ctx, cl, cfg.ISCSI, req.Name, dataset, datasetName)
-	default:
+	case filesystem:
+		volumeContext, err = cs.createNFSVolume(ctx, cl, cfg.NFS, req.Name, dataset)
 	}
 
 	if err != nil {
@@ -302,8 +293,7 @@ func (cs *server) ValidateVolumeCapabilities(ctx context.Context, req *csi.Valid
 			}
 		case cap.GetMount() != nil:
 			switch cap.GetAccessMode().GetMode() {
-			case csi.VolumeCapability_AccessMode_SINGLE_NODE_WRITER, csi.VolumeCapability_AccessMode_SINGLE_NODE_READER_ONLY:
-			default:
+			case csi.VolumeCapability_AccessMode_MULTI_NODE_READER_ONLY, csi.VolumeCapability_AccessMode_MULTI_NODE_SINGLE_WRITER, csi.VolumeCapability_AccessMode_MULTI_NODE_MULTI_WRITER:
 				if di.Type == "VOLUME" { // multi-node access with ISCSI is not allowed
 					return &csi.ValidateVolumeCapabilitiesResponse{}, nil
 				}
@@ -348,6 +338,21 @@ func (cs *server) ControllerExpandVolume(ctx context.Context, req *csi.Controlle
 	nodeExpansionRequired := false
 
 	switch di.Type {
+	case "VOLUME":
+		volsize := int(req.CapacityRange.LimitBytes)
+		if volsize == 0 {
+			volsize = int(req.CapacityRange.RequiredBytes)
+		}
+
+		if _, err = handleNasResponse(cl.PutPoolDatasetIdId(ctx, di.ID, TruenasOapi.PutPoolDatasetIdIdJSONRequestBody{
+			Volsize: &volsize,
+		})); err != nil {
+			return nil, err
+		}
+
+		capacity = int64(volsize)
+		nodeExpansionRequired = true
+
 	case "FILESYSTEM":
 		refreservation := int(req.CapacityRange.RequiredBytes)
 		refquota := int(req.CapacityRange.LimitBytes)
@@ -374,21 +379,6 @@ func (cs *server) ControllerExpandVolume(ctx context.Context, req *csi.Controlle
 
 		capacity = int64(refquota)
 
-	case "VOLUME":
-		volsize := int(req.CapacityRange.LimitBytes)
-		if volsize == 0 {
-			volsize = int(req.CapacityRange.RequiredBytes)
-		}
-
-		if _, err = handleNasResponse(cl.PutPoolDatasetIdId(ctx, di.ID, TruenasOapi.PutPoolDatasetIdIdJSONRequestBody{
-			Volsize: &volsize,
-		})); err != nil {
-			return nil, err
-		}
-
-		capacity = int64(volsize)
-		nodeExpansionRequired = true
-
 	default:
 		return nil, status.Errorf(codes.InvalidArgument, "Invalid dataset received from NAS: %+v", di)
 	}
@@ -410,6 +400,13 @@ func (cs *server) ControllerGetCapabilities(ctx context.Context, req *csi.Contro
 				Type: &csi.ControllerServiceCapability_Rpc{
 					Rpc: &csi.ControllerServiceCapability_RPC{
 						Type: csi.ControllerServiceCapability_RPC_EXPAND_VOLUME,
+					},
+				},
+			},
+			{
+				Type: &csi.ControllerServiceCapability_Rpc{
+					Rpc: &csi.ControllerServiceCapability_RPC{
+						Type: csi.ControllerServiceCapability_RPC_SINGLE_NODE_MULTI_WRITER,
 					},
 				},
 			},

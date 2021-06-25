@@ -169,7 +169,7 @@ var Identity_ServiceDesc = grpc.ServiceDesc{
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
-	Metadata: "pkg/csi/csi-v1.3.0.proto",
+	Metadata: "pkg/csi/csi.proto",
 }
 
 // ControllerClient is the client API for Controller service.
@@ -687,7 +687,7 @@ var Controller_ServiceDesc = grpc.ServiceDesc{
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
-	Metadata: "pkg/csi/csi-v1.3.0.proto",
+	Metadata: "pkg/csi/csi.proto",
 }
 
 // NodeClient is the client API for Node service.
@@ -1025,5 +1025,5 @@ var Node_ServiceDesc = grpc.ServiceDesc{
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
-	Metadata: "pkg/csi/csi-v1.3.0.proto",
+	Metadata: "pkg/csi/csi.proto",
 }
