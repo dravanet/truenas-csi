@@ -24,7 +24,6 @@ Plugin:
 
 Controller:
 - create/delete volume
-- publish-unpublish volume
 - expand-volume
 
 Node:
