@@ -175,7 +175,6 @@ type nodeSetting struct {
 
 var defaultNodeSettings = []nodeSetting{
 	{"node.startup", "manual"},
-	{"node.session.timeo.replacement_timeout", "-1"},
 }
 
 func iscsiAddNode(ctx context.Context, iscsi *volumecontext.ISCSI) (err error) {
