@@ -167,40 +167,41 @@ func (ns *server) iscsiNodeExpandVolume(ctx context.Context, req *csi.NodeExpand
 	return &csi.NodeExpandVolumeResponse{}, nil
 }
 
+// nodeSetting holds a setting key/value for an iscsi node
+type nodeSetting struct {
+	Key   string
+	Value string
+}
+
+var defaultNodeSettings = []nodeSetting{
+	{"node.startup", "manual"},
+	{"node.session.timeo.replacement_timeout", "-1"},
+}
+
 func iscsiAddNode(ctx context.Context, iscsi *volumecontext.ISCSI) (err error) {
 	if err = execCmd(ctx, "iscsiadm", "-m", "node", "-T", iscsi.Target, "-o", "new", "-p", iscsi.Portal); err != nil {
 		return
 	}
 
-	if err = execCmd(ctx, "iscsiadm", "-m", "node", "-T", iscsi.Target, "-o", "update", "-n", "node.startup", "-v", "manual"); err != nil {
-		return
-	}
-
-	if err = execCmd(ctx, "iscsiadm", "-m", "node", "-T", iscsi.Target, "-o", "update", "-n", "node.session.timeo.replacement_timeout", "-v", "-1"); err != nil {
-		return
-	}
-
+	settings := defaultNodeSettings
 	if iscsi.InboundAuth != nil {
-		if err = execCmd(ctx, "iscsiadm", "-m", "node", "-T", iscsi.Target, "-o", "update", "-n", "node.session.auth.authmethod", "-v", "CHAP"); err != nil {
-			return
-		}
-
-		if err = execCmd(ctx, "iscsiadm", "-m", "node", "-T", iscsi.Target, "-o", "update", "-n", "node.session.auth.username", "-v", iscsi.InboundAuth.Username); err != nil {
-			return
-		}
-
-		if err = execCmd(ctx, "iscsiadm", "-m", "node", "-T", iscsi.Target, "-o", "update", "-n", "node.session.auth.password", "-v", iscsi.InboundAuth.Password); err != nil {
-			return
-		}
+		settings = append(settings,
+			nodeSetting{"node.session.auth.authmethod", "CHAP"},
+			nodeSetting{"node.session.auth.username", iscsi.InboundAuth.Username},
+			nodeSetting{"node.session.auth.password", iscsi.InboundAuth.Password},
+		)
 
 		if iscsi.OutboundAuth != nil {
-			if err = execCmd(ctx, "iscsiadm", "-m", "node", "-T", iscsi.Target, "-o", "update", "-n", "node.session.auth.username_in", "-v", iscsi.OutboundAuth.Username); err != nil {
-				return
-			}
+			settings = append(settings,
+				nodeSetting{"node.session.auth.username_in", iscsi.OutboundAuth.Username},
+				nodeSetting{"node.session.auth.password_in", iscsi.OutboundAuth.Password},
+			)
+		}
+	}
 
-			if err = execCmd(ctx, "iscsiadm", "-m", "node", "-T", iscsi.Target, "-o", "update", "-n", "node.session.auth.password_in", "-v", iscsi.OutboundAuth.Password); err != nil {
-				return
-			}
+	for _, setting := range settings {
+		if err = execCmd(ctx, "iscsiadm", "-m", "node", "-T", iscsi.Target, "-o", "update", "-n", setting.Key, "-v", setting.Value); err != nil {
+			return
 		}
 	}
 
