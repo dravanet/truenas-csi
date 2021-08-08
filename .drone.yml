@@ -7,7 +7,7 @@ platform: {arch: arm64, os: linux, variant: v8}
 resources:
   requests: {memory: 512Mi}
 steps:
-- commands: [apk --no-cache add make, make]
+- commands: [apk --no-cache add make, make BUILD_CPUS=1]
   image: golang:1.16-alpine
   name: build
   pull: always
@@ -39,7 +39,7 @@ platform: {arch: arm, os: linux, variant: v7}
 resources:
   requests: {memory: 512Mi}
 steps:
-- commands: [apk --no-cache add make, make]
+- commands: [apk --no-cache add make, make BUILD_CPUS=1]
   image: golang:1.16-alpine
   name: build
   pull: always
@@ -71,7 +71,7 @@ platform: {arch: amd64, os: linux}
 resources:
   requests: {memory: 512Mi}
 steps:
-- commands: [apk --no-cache add make, make]
+- commands: [apk --no-cache add make, make BUILD_CPUS=1]
   image: golang:1.16-alpine
   name: build
   pull: always

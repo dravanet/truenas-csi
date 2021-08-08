@@ -12,7 +12,7 @@ steps:
   pull: always
   commands:
     - apk --no-cache add make
-    - make
+    - make BUILD_CPUS=1
 
 - name: image
   image: plugins/docker
