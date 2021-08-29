@@ -11,7 +11,7 @@ INSTALL = install
 all: $(PROG)
 
 $(PROG):
-	CGO_ENABLED=0 $(GO) build -p $(BUILD_CPUS) -ldflags -s -o $(PROG) ./cmd/node/
+	CGO_ENABLED=0 GOGC=50 $(GO) build -p $(BUILD_CPUS) -ldflags -s -o $(PROG) ./cmd/node/
 
 install:
 	$(INSTALL) -d $(DESTDIR)/usr/sbin
