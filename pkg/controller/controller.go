@@ -31,6 +31,10 @@ type server struct {
 	csi.UnimplementedControllerServer
 }
 
+var (
+	errVolumecapabilititesChanged = status.Error(codes.InvalidArgument, "Volume capabilities may have changed")
+)
+
 func (cs *server) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequest) (*csi.CreateVolumeResponse, error) {
 	if req.GetName() == "" {
 		return nil, status.Error(codes.InvalidArgument, "No name specified")
@@ -180,7 +184,21 @@ func (cs *server) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequest
 			return nil, status.Errorf(codes.Unavailable, "dataset for %q exists with different comment, perhaps hash collision?", req.Name)
 		}
 
-		if (filesystem && capacityBytes != *ds.Refquota) || (volume && capacityBytes != *ds.Volsize) {
+		var capacityChanged bool
+		switch {
+		case volume:
+			if ds.Volsize == nil {
+				return nil, errVolumecapabilititesChanged
+			}
+			capacityChanged = capacityBytes != *ds.Volsize
+		case filesystem:
+			if ds.Refquota == nil {
+				return nil, errVolumecapabilititesChanged
+			}
+			capacityChanged = capacityBytes != *ds.Refquota
+		}
+
+		if capacityChanged {
 			return nil, status.Errorf(codes.AlreadyExists, "capacity requirements changed for existing volume %q", req.Name)
 		}
 	}
