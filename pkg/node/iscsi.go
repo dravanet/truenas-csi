@@ -297,7 +297,15 @@ func iscsiWaitForDevice(ctx context.Context, device string) (err error) {
 	}
 }
 
+var iscsiworkqueue = make(chan struct{}, 1)
+
 func iscsiadm(ctx context.Context, args ...string) (err error) {
+	// Serialize iscsiadm commands
+	iscsiworkqueue <- struct{}{}
+	defer func() {
+		<-iscsiworkqueue
+	}()
+
 	i := 0
 
 	for {
