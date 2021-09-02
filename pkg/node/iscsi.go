@@ -19,6 +19,43 @@ import (
 	"github.com/dravanet/truenas-csi/pkg/volumecontext"
 )
 
+// Iscsi error codes
+const (
+	ISCSI_SUCCESS                    = 0
+	ISCSI_ERR                        = 1
+	ISCSI_ERR_SESS_NOT_FOUND         = 2
+	ISCSI_ERR_NOMEM                  = 3
+	ISCSI_ERR_TRANS                  = 4
+	ISCSI_ERR_LOGIN                  = 5
+	ISCSI_ERR_IDBM                   = 6
+	ISCSI_ERR_INVAL                  = 7
+	ISCSI_ERR_TRANS_TIMEOUT          = 8
+	ISCSI_ERR_INTERNAL               = 9
+	ISCSI_ERR_LOGOUT                 = 10
+	ISCSI_ERR_PDU_TIMEOUT            = 11
+	ISCSI_ERR_TRANS_NOT_FOUND        = 12
+	ISCSI_ERR_ACCESS                 = 13
+	ISCSI_ERR_TRANS_CAPS             = 14
+	ISCSI_ERR_SESS_EXISTS            = 15
+	ISCSI_ERR_INVALID_MGMT_REQ       = 16
+	ISCSI_ERR_ISNS_UNAVAILABLE       = 17
+	ISCSI_ERR_ISCSID_COMM_ERR        = 18
+	ISCSI_ERR_FATAL_LOGIN            = 19
+	ISCSI_ERR_ISCSID_NOTCONN         = 20
+	ISCSI_ERR_NO_OBJS_FOUND          = 21
+	ISCSI_ERR_SYSFS_LOOKUP           = 22
+	ISCSI_ERR_HOST_NOT_FOUND         = 23
+	ISCSI_ERR_LOGIN_AUTH_FAILED      = 24
+	ISCSI_ERR_ISNS_QUERY             = 25
+	ISCSI_ERR_ISNS_REG_FAILED        = 26
+	ISCSI_ERR_OP_NOT_SUPP            = 27
+	ISCSI_ERR_BUSY                   = 28
+	ISCSI_ERR_AGAIN                  = 29
+	ISCSI_ERR_UNKNOWN_DISCOVERY_TYPE = 30
+	ISCSI_ERR_CHILD_TERMINATED       = 31
+	ISCSI_ERR_SESSION_NOT_CONNECTED  = 32
+)
+
 func (ns *server) stageISCSIVolume(ctx context.Context, req *csi.NodeStageVolumeRequest, iscsi *volumecontext.ISCSI) (err error) {
 	portal := iscsi.Portal
 	if !strings.Contains(portal, ":") {
@@ -178,7 +215,7 @@ var defaultNodeSettings = []nodeSetting{
 }
 
 func iscsiAddNode(ctx context.Context, iscsi *volumecontext.ISCSI) (err error) {
-	if err = execCmd(ctx, "iscsiadm", "-m", "node", "-T", iscsi.Target, "-o", "new", "-p", iscsi.Portal); err != nil {
+	if err = iscsiadm(ctx, "-m", "node", "-T", iscsi.Target, "-o", "new", "-p", iscsi.Portal); err != nil {
 		return
 	}
 
@@ -199,7 +236,7 @@ func iscsiAddNode(ctx context.Context, iscsi *volumecontext.ISCSI) (err error) {
 	}
 
 	for _, setting := range settings {
-		if err = execCmd(ctx, "iscsiadm", "-m", "node", "-T", iscsi.Target, "-o", "update", "-n", setting.Key, "-v", setting.Value); err != nil {
+		if err = iscsiadm(ctx, "-m", "node", "-T", iscsi.Target, "-o", "update", "-n", setting.Key, "-v", setting.Value); err != nil {
 			return
 		}
 	}
@@ -208,15 +245,36 @@ func iscsiAddNode(ctx context.Context, iscsi *volumecontext.ISCSI) (err error) {
 }
 
 func iscsiDeleteNode(ctx context.Context, target string) (err error) {
-	return execCmd(ctx, "iscsiadm", "-m", "node", "-T", target, "-o", "delete")
+	if err = iscsiadm(ctx, "-m", "node", "-T", target, "-o", "delete"); err != nil {
+		// Ignore ISCSI_ERR_NO_OBJS_FOUND
+		if exiterror, ok := err.(*exec.ExitError); ok && exiterror.ExitCode() == ISCSI_ERR_NO_OBJS_FOUND {
+			err = nil
+		}
+	}
+
+	return
 }
 
-func iscsiLoginNode(ctx context.Context, target string) error {
-	return execCmd(ctx, "iscsiadm", "-m", "node", "-T", target, "-l")
+func iscsiLoginNode(ctx context.Context, target string) (err error) {
+	if err = iscsiadm(ctx, "-m", "node", "-T", target, "-l"); err != nil {
+		// Ignore ISCSI_ERR_SESS_EXISTS
+		if exiterror, ok := err.(*exec.ExitError); ok && exiterror.ExitCode() == ISCSI_ERR_SESS_EXISTS {
+			err = nil
+		}
+	}
+
+	return
 }
 
-func iscsiLogoutNode(ctx context.Context, target string) error {
-	return execCmd(ctx, "iscsiadm", "-m", "node", "-T", target, "-u")
+func iscsiLogoutNode(ctx context.Context, target string) (err error) {
+	if err = iscsiadm(ctx, "-m", "node", "-T", target, "-u"); err != nil {
+		// Ignore ISCSI_ERR_NO_OBJS_FOUND
+		if exiterror, ok := err.(*exec.ExitError); ok && exiterror.ExitCode() == ISCSI_ERR_NO_OBJS_FOUND {
+			err = nil
+		}
+	}
+
+	return
 }
 
 func iscsiWaitForDevice(ctx context.Context, device string) (err error) {
@@ -237,4 +295,43 @@ func iscsiWaitForDevice(ctx context.Context, device string) (err error) {
 		case <-ticker.C:
 		}
 	}
+}
+
+var iscsiworkqueue = make(chan struct{}, 1)
+
+func iscsiadm(ctx context.Context, args ...string) (err error) {
+	// Serialize iscsiadm commands
+	iscsiworkqueue <- struct{}{}
+	defer func() {
+		<-iscsiworkqueue
+	}()
+
+	i := 0
+
+	for {
+		if err = execCmd(ctx, "iscsiadm", args...); err == nil {
+			return
+		}
+
+		// Check exit status
+		exiterror, ok := err.(*exec.ExitError)
+		if !ok {
+			return
+		}
+
+		// Retry on ISCSI_ERR_IDBM error
+		if exiterror.ExitCode() != ISCSI_ERR_IDBM {
+			return
+		}
+
+		if i == 2 {
+			break
+		}
+
+		i++
+
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	return
 }
