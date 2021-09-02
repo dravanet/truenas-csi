@@ -300,6 +300,10 @@ func (ns *server) extractVolumeContext(volumeContext map[string]string) (*volume
 // isMountPoint returns true if path exists and is a mountpoint
 func isMountPoint(path string) (ismnt bool, stat unix.Stat_t) {
 	if err := unix.Stat(path, &stat); err != nil {
+		// EIO might happen when a device is disconnected while is mounted
+		if syserr, ok := err.(syscall.Errno); ok && syserr == syscall.EIO {
+			ismnt = true
+		}
 		return
 	}
 

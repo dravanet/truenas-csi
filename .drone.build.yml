@@ -8,11 +8,11 @@ resources:
 
 steps:
 - name: build
-  image: golang:1.16-alpine
+  image: golang:1.17-alpine
   pull: always
   commands:
     - apk --no-cache add make
-    - make
+    - GOGC=50 make BUILD_CPUS=1
 
 - name: image
   image: plugins/docker

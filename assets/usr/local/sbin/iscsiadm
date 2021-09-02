@@ -1,0 +1,5 @@
+#!/bin/sh
+
+# https://engineering.docker.com/2019/07/road-to-containing-iscsi/
+
+exec chroot /host /usr/bin/env -i PATH="/sbin:/bin:/usr/bin" iscsiadm "$@"
