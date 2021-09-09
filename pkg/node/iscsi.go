@@ -9,6 +9,7 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"golang.org/x/sys/unix"
@@ -297,14 +298,12 @@ func iscsiWaitForDevice(ctx context.Context, device string) (err error) {
 	}
 }
 
-var iscsiworkqueue = make(chan struct{}, 1)
+var iscsiMu sync.Mutex
 
 func iscsiadm(ctx context.Context, args ...string) (err error) {
 	// Serialize iscsiadm commands
-	iscsiworkqueue <- struct{}{}
-	defer func() {
-		<-iscsiworkqueue
-	}()
+	iscsiMu.Lock()
+	defer iscsiMu.Unlock()
 
 	i := 0
 
