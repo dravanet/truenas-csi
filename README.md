@@ -2,34 +2,11 @@
 
 CSI driver utilizing TrueNAS for volume management.
 
-Warning: still in __ALPHA__ state.
+Warning: in __BETA__ state.
 
 ## Deployment
 
 For deployment, see [truenas-csi-chart](https://github.com/dravanet/truenas-csi-chart).
-
-## Goals
-
-- Use TrueNAS API only.
-- Meet CSI requirements as much as can
-  - idempotency during volume operations
-  - implement as much capabilities
-
-## Capabilities
-
-The following capabilities are supported from CSI Specification 1.3.0:
-
-Plugin:
-- online volume expansion
-
-Controller:
-- create/delete volume
-- expand-volume
-
-Node:
-- stage-unstage volume
-- get volume stats
-- expand volume
 
 ## Configuration
 
@@ -97,6 +74,33 @@ Parameter name | Effect
 ---------------|--------
 truenas-csi.dravanet.net/nas | NAS Selection
 truenas-csi.dravanet.net/config | Sub-configuration selection
+
+## Implementation goals
+
+- Use TrueNAS API only.
+- Meet CSI requirements as much as can
+  - idempotency during volume operations
+  - implement as much capabilities
+
+## Capabilities
+
+The following capabilities are supported from CSI Specification 1.3.0:
+
+Plugin:
+- online volume expansion
+
+Controller:
+- create/delete volume
+- expand-volume
+
+Node:
+- stage-unstage volume
+- get volume stats
+- expand volume
+
+## Planned features
+
+- Snapshot handling
 
 ## Related projects
 
