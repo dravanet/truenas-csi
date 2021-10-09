@@ -157,18 +157,6 @@ func (cs *server) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequest
 	}
 
 	switch createresp.StatusCode {
-	case 200:
-		// Create succeeded
-		if filesystem {
-			// Set permissions to world-writable
-			mode := "0777"
-			if _, err = handleNasResponse(cl.PostPoolDatasetIdIdPermission(ctx, dataset, TruenasOapi.PostPoolDatasetIdIdPermissionJSONRequestBody{
-				Acl:  &[]map[string]interface{}{},
-				Mode: &mode,
-			})); err != nil {
-				return nil, status.Errorf(codes.Unavailable, "failed setting permissions on dataset for %q", req.Name)
-			}
-		}
 	default:
 		// Create failed due to conflict or other errors
 		ds, err := cs.getDataset(ctx, cl, dataset)
@@ -200,6 +188,18 @@ func (cs *server) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequest
 
 		if capacityChanged {
 			return nil, status.Errorf(codes.AlreadyExists, "capacity requirements changed for existing volume %q", req.Name)
+		}
+	}
+
+	// Dataset ready, set permissions on filesystem
+	if filesystem {
+		// Set permissions to world-writable
+		mode := "0777"
+		if _, err = handleNasResponse(cl.PostPoolDatasetIdIdPermission(ctx, dataset, TruenasOapi.PostPoolDatasetIdIdPermissionJSONRequestBody{
+			Acl:  &[]map[string]interface{}{},
+			Mode: &mode,
+		})); err != nil {
+			return nil, status.Errorf(codes.Unavailable, "failed setting permissions on dataset for %q", req.Name)
 		}
 	}
 
