@@ -123,6 +123,10 @@ func (cs *server) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequest
 		requestBody.Volsize = &volsize
 		requestBody.Sparse = &cfg.Sparse
 
+		if volblocksize := TruenasOapi.PoolDatasetCreate0Volblocksize(cfg.ISCSI.VolBlockSize); volblocksize != "" {
+			requestBody.Volblocksize = &volblocksize
+		}
+
 	case filesystem:
 		// Create filesystem
 		if cfg.NFS == nil {

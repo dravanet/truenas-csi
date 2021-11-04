@@ -9,6 +9,8 @@ default:
     portal: 192.168.0.11:3260
     # portal id in TrueNAS
     portalid: 1
+    # volblocksize for datasets, if left empty, truenas will decide
+    #volblocksize: 32K
 
   nfs: # Global nfs configuration
     # server address for clients
