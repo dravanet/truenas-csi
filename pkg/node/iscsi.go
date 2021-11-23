@@ -2,6 +2,7 @@ package node
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io/ioutil"
 	"os"
@@ -246,36 +247,15 @@ func iscsiAddNode(ctx context.Context, iscsi *volumecontext.ISCSI) (err error) {
 }
 
 func iscsiDeleteNode(ctx context.Context, target string) (err error) {
-	if err = iscsiadm(ctx, "-m", "node", "-T", target, "-o", "delete"); err != nil {
-		// Ignore ISCSI_ERR_NO_OBJS_FOUND
-		if exiterror, ok := err.(*exec.ExitError); ok && exiterror.ExitCode() == ISCSI_ERR_NO_OBJS_FOUND {
-			err = nil
-		}
-	}
-
-	return
+	return passExitCode(iscsiadm(ctx, "-m", "node", "-T", target, "-o", "delete"), ISCSI_ERR_NO_OBJS_FOUND)
 }
 
 func iscsiLoginNode(ctx context.Context, target string) (err error) {
-	if err = iscsiadm(ctx, "-m", "node", "-T", target, "-l"); err != nil {
-		// Ignore ISCSI_ERR_SESS_EXISTS
-		if exiterror, ok := err.(*exec.ExitError); ok && exiterror.ExitCode() == ISCSI_ERR_SESS_EXISTS {
-			err = nil
-		}
-	}
-
-	return
+	return passExitCode(iscsiadm(ctx, "-m", "node", "-T", target, "-l"), ISCSI_ERR_SESS_EXISTS)
 }
 
 func iscsiLogoutNode(ctx context.Context, target string) (err error) {
-	if err = iscsiadm(ctx, "-m", "node", "-T", target, "-u"); err != nil {
-		// Ignore ISCSI_ERR_NO_OBJS_FOUND
-		if exiterror, ok := err.(*exec.ExitError); ok && exiterror.ExitCode() == ISCSI_ERR_NO_OBJS_FOUND {
-			err = nil
-		}
-	}
-
-	return
+	return passExitCode(iscsiadm(ctx, "-m", "node", "-T", target, "-u"), ISCSI_ERR_NO_OBJS_FOUND)
 }
 
 func iscsiWaitForDevice(ctx context.Context, device string) (err error) {
@@ -312,14 +292,9 @@ func iscsiadm(ctx context.Context, args ...string) (err error) {
 			return
 		}
 
-		// Check exit status
-		exiterror, ok := err.(*exec.ExitError)
-		if !ok {
-			return
-		}
-
-		// Retry on ISCSI_ERR_IDBM error
-		if exiterror.ExitCode() != ISCSI_ERR_IDBM {
+		// Check exit status for ISCSI_ERR_IDBM
+		var exiterror *exec.ExitError
+		if !errors.As(err, &exiterror) || exiterror.ExitCode() != ISCSI_ERR_IDBM {
 			return
 		}
 

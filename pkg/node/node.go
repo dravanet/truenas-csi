@@ -2,6 +2,7 @@ package node
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io/ioutil"
 	"os"
@@ -279,9 +280,20 @@ func execCmd(ctx context.Context, name string, arg ...string) error {
 	return cmd.Run()
 }
 
+func passExitCode(err error, code int) error {
+	var exiterror *exec.ExitError
+
+	if errors.As(err, &exiterror) && exiterror.ExitCode() == code {
+		return nil
+	}
+
+	return err
+}
+
 func umount(ctx context.Context, path string) (busy bool, err error) {
 	if err = syscall.Unmount(path, 0); err != nil {
-		if errno, ok := err.(syscall.Errno); ok && errno == syscall.EBUSY {
+		var errno syscall.Errno
+		if errors.As(err, &errno) && errno == syscall.EBUSY {
 			busy = true
 		}
 	}
@@ -301,7 +313,8 @@ func (ns *server) extractVolumeContext(volumeContext map[string]string) (*volume
 func isMountPoint(path string) (ismnt bool, stat unix.Stat_t) {
 	if err := unix.Stat(path, &stat); err != nil {
 		// EIO might happen when a device is disconnected while is mounted
-		if syserr, ok := err.(syscall.Errno); ok && syserr == syscall.EIO {
+		var errno syscall.Errno
+		if errors.As(err, &errno) && errno == syscall.EIO {
 			ismnt = true
 		}
 		return
