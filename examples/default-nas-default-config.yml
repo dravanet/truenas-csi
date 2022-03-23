@@ -11,6 +11,9 @@ default:
     portalid: 1
     # volblocksize for datasets, if left empty, truenas will decide
     #volblocksize: 32K
+    # disableReportBlockSize reflects
+    # TrueNAS Disable Physical BlockSize reporting feature
+    #disableReportBlockSize: true
 
   nfs: # Global nfs configuration
     # server address for clients
