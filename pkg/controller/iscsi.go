@@ -43,6 +43,7 @@ func (cs *server) createISCSIVolume(ctx context.Context, cl *TruenasOapi.Client,
 		InsecureTpc: &insercuretpc,
 		Comment:     &reqName,
 		Serial:      &serial,
+		Pblocksize:  &iscsi.DisableReportBlockSize,
 	})
 	if err != nil {
 		return

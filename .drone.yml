@@ -13,9 +13,9 @@ resources:
     memory: 512Mi
 steps:
 - commands:
-  - apk --no-cache add make
+  - apk --no-cache add make git
   - GOGC=50 make BUILD_CPUS=1
-  image: golang:1.17-alpine
+  image: golang:1.18-alpine
   name: build
   pull: always
 - image: plugins/docker
@@ -55,9 +55,9 @@ resources:
     memory: 512Mi
 steps:
 - commands:
-  - apk --no-cache add make
+  - apk --no-cache add make git
   - GOGC=50 make BUILD_CPUS=1
-  image: golang:1.17-alpine
+  image: golang:1.18-alpine
   name: build
   pull: always
 - image: plugins/docker
@@ -96,9 +96,9 @@ resources:
     memory: 512Mi
 steps:
 - commands:
-  - apk --no-cache add make
+  - apk --no-cache add make git
   - GOGC=50 make BUILD_CPUS=1
-  image: golang:1.17-alpine
+  image: golang:1.18-alpine
   name: build
   pull: always
 - image: plugins/docker

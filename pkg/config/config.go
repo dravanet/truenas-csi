@@ -72,9 +72,10 @@ type NFS struct {
 
 // ISCSI holds configuration for Block Volumes
 type ISCSI struct {
-	Portal       string `yaml:"portal"`
-	PortalID     int    `yaml:"portalid"`
-	VolBlockSize string `yaml:"volblocksize,omitempty"`
+	Portal                 string `yaml:"portal"`
+	PortalID               int    `yaml:"portalid"`
+	VolBlockSize           string `yaml:"volblocksize,omitempty"`
+	DisableReportBlockSize bool   `yaml:"disableReportBlockSize,omitempty"`
 }
 
 // Validate validates configuration
