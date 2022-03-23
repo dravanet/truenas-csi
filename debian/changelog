@@ -1,3 +1,9 @@
+truenas-csi (0.4.0) stable; urgency=medium
+
+  * Release 0.4.0
+
+ -- Richard Kojedzinszky <richard.kojedzinszky@euronetrt.hu>  Wed, 23 Mar 2022 14:09:17 +0100
+
 truenas-csi (0.3.1) stable; urgency=medium
 
   * Release 0.3.1
