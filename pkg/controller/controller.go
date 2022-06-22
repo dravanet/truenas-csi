@@ -160,8 +160,7 @@ func (cs *server) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequest
 		return nil, status.Errorf(codes.Unavailable, "failed provisioning %q: %+v", req.Name, err)
 	}
 
-	switch createresp.StatusCode {
-	default:
+	if createresp.StatusCode != 200 {
 		// Create failed due to conflict or other errors
 		ds, err := cs.getDataset(ctx, cl, dataset)
 		if err != nil {
