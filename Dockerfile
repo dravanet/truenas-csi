@@ -1,11 +1,13 @@
-FROM alpine:3.15
+FROM alpine:3.17
+
+ARG TARGETARCH
 
 LABEL org.opencontainers.image.authors "Richard Kojedzinszky <richard@kojedz.in>"
 LABEL org.opencontainers.image.source https://github.com/dravanet/truenas-csi
 
 RUN apk --no-cache add util-linux nfs-utils e2fsprogs-extra xfsprogs-extra
 
-COPY truenas-csi /usr/local/bin/
+COPY truenas-csi.${TARGETARCH} /usr/local/bin/truenas-csi
 
 COPY assets/ /
 
