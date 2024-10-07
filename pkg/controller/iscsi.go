@@ -180,7 +180,7 @@ func (cs *server) createISCSIVolume(ctx context.Context, cl *TruenasOapi.Client,
 	if iscsiglobalresp, err = handleNasResponse(cl.GetIscsiGlobal(ctx)); err != nil {
 		return
 	}
-	var result TruenasOapi.PutIscsiGlobalJSONBody
+	var result TruenasOapi.IscsiGlobalUpdate0
 	if err = json.Unmarshal(iscsiglobalresp, &result); err != nil {
 		return
 	}

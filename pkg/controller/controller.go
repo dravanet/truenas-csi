@@ -116,7 +116,7 @@ func (cs *server) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequest
 			return nil, status.Errorf(codes.Unavailable, "cannot provision iscsi share for %q", req.Name)
 		}
 
-		voltype := TruenasOapi.PoolDatasetCreate0TypeVOLUME
+		voltype := TruenasOapi.VOLUME
 		requestBody.Type = &voltype
 
 		volsize := int(capacityBytes)
@@ -133,7 +133,7 @@ func (cs *server) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequest
 			return nil, status.Errorf(codes.Unavailable, "cannot provision nfs share for %q", req.Name)
 		}
 
-		voltype := TruenasOapi.PoolDatasetCreate0TypeFILESYSTEM
+		voltype := TruenasOapi.FILESYSTEM
 		requestBody.Type = &voltype
 
 		refreservation := int(capacityrange.RequiredBytes)
