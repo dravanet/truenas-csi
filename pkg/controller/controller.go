@@ -159,6 +159,8 @@ func (cs *server) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequest
 	if err != nil {
 		return nil, status.Errorf(codes.Unavailable, "failed provisioning %q: %+v", req.Name, err)
 	}
+	_, _ = io.ReadAll(createresp.Body)
+	_ = createresp.Body.Close()
 
 	if createresp.StatusCode != 200 {
 		// Create failed due to conflict or other errors
@@ -500,6 +502,7 @@ func (cs *server) getDataset(ctx context.Context, cl *TruenasOapi.Client, datase
 	if err != nil {
 		return nil, status.Errorf(codes.Unavailable, "Error reading response body: %+v", err)
 	}
+	_ = resp.Body.Close()
 
 	switch resp.StatusCode {
 	case 200:
@@ -564,6 +567,7 @@ func handleNasResponse(resp *http.Response, err error) ([]byte, error) {
 	if err != nil {
 		return nil, status.Errorf(codes.Unavailable, "Error reading response body: %+v", err)
 	}
+	_ = resp.Body.Close()
 	if resp.StatusCode != 200 {
 		return nil, status.Errorf(codes.Unavailable, "Unexpected result from Nas: %s", string(body))
 	}

@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"path"
 	"strings"
@@ -158,6 +159,8 @@ func (cs *server) createISCSIVolume(ctx context.Context, cl *TruenasOapi.Client,
 	if err != nil {
 		return
 	}
+	_, _ = io.ReadAll(assoccreateresponse.Body)
+	_ = assoccreateresponse.Body.Close()
 	switch assoccreateresponse.StatusCode {
 	case 200:
 	default:
@@ -243,7 +246,7 @@ func (cs *server) deleteISCSIVolume(ctx context.Context, cl *TruenasOapi.Client,
 
 	if extent != nil {
 		// Delete extent
-		if _, err := cl.DeleteIscsiExtentIdId(ctx, extent.ID, TruenasOapi.DeleteIscsiExtentIdIdJSONRequestBody{}); err != nil {
+		if _, err := handleNasResponse(cl.DeleteIscsiExtentIdId(ctx, extent.ID, TruenasOapi.DeleteIscsiExtentIdIdJSONRequestBody{})); err != nil {
 			return status.Errorf(codes.Unavailable, "Error during call to Nas: %+v", err)
 		}
 	}
