@@ -4,7 +4,6 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
-	"io/ioutil"
 	"log"
 	"net"
 	"os"
@@ -42,7 +41,7 @@ func main() {
 	var controllerServer csi.ControllerServer
 
 	if *controllerConfig != "" {
-		cfgData, err := ioutil.ReadFile(*controllerConfig)
+		cfgData, err := os.ReadFile(*controllerConfig)
 		if err != nil {
 			log.Fatal(err)
 		}

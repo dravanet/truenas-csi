@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"os/exec"
 	"path"
@@ -91,7 +90,7 @@ func (ns *server) stageISCSIVolume(ctx context.Context, req *csi.NodeStageVolume
 		}
 	}
 
-	if err = ioutil.WriteFile(path.Join(req.StagingTargetPath, "iscsi"), []byte(iscsi.Target), 0o640); err != nil {
+	if err = os.WriteFile(path.Join(req.StagingTargetPath, "iscsi"), []byte(iscsi.Target), 0o640); err != nil {
 		return status.Errorf(codes.Unavailable, "Error writing to staging/iscsi: %+v", err)
 	}
 
@@ -179,7 +178,7 @@ func (ns *server) iscsiNodeExpandVolume(ctx context.Context, req *csi.NodeExpand
 	blockdevice := strings.TrimPrefix(device, "/dev/")
 
 	rescanPath := path.Join("/sys", "class", "block", blockdevice, "device", "rescan")
-	if err = ioutil.WriteFile(rescanPath, []byte("- - -"), 0); err != nil {
+	if err = os.WriteFile(rescanPath, []byte("- - -"), 0); err != nil {
 		return nil, status.Errorf(codes.Unavailable, "Failed issuing rescan to %s: %+v", rescanPath, err)
 	}
 

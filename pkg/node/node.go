@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"os/exec"
 	"path"
@@ -76,7 +75,7 @@ func (ns *server) NodeUnstageVolume(ctx context.Context, req *csi.NodeUnstageVol
 
 	iscsiFile := path.Join(req.StagingTargetPath, "iscsi")
 
-	if targetb, err := ioutil.ReadFile(iscsiFile); err == nil {
+	if targetb, err := os.ReadFile(iscsiFile); err == nil {
 		ns.unstageISCSIVolume(ctx, string(targetb))
 		rdevFile := path.Join(req.StagingTargetPath, "device")
 		os.Remove(rdevFile)

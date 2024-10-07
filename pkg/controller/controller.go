@@ -5,7 +5,7 @@ import (
 	"crypto/sha1"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"path"
 	"strings"
@@ -486,7 +486,7 @@ func (cs *server) getDataset(ctx context.Context, cl *TruenasOapi.Client, datase
 		return nil, status.Errorf(codes.Unavailable, "Error during call to Nas: %+v", err)
 	}
 
-	body, err := ioutil.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, status.Errorf(codes.Unavailable, "Error reading response body: %+v", err)
 	}
@@ -550,7 +550,7 @@ func handleNasResponse(resp *http.Response, err error) ([]byte, error) {
 	if err != nil {
 		return nil, status.Errorf(codes.Unavailable, "Error during call to Nas: %+v", err)
 	}
-	body, err := ioutil.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, status.Errorf(codes.Unavailable, "Error reading response body: %+v", err)
 	}
