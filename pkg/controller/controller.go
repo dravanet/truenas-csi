@@ -23,6 +23,9 @@ import (
 const (
 	nasSelector    = "truenas-csi.dravanet.net/nas"
 	configSelector = "truenas-csi.dravanet.net/config"
+
+	xTruenasForceSqlFiltersHeaderName  = "X-Truenas-Force-Sql-Filters"
+	xTruenasForceSqlFiltersHeaderValue = "true"
 )
 
 type server struct {
@@ -445,7 +448,15 @@ func New(cfg config.CSIConfiguration) csi.ControllerServer {
 }
 
 func newTruenasOapiClient(cfg *config.FreeNAS) (*TruenasOapi.Client, error) {
-	var opts []TruenasOapi.ClientOption
+	opts := []TruenasOapi.ClientOption{
+		TruenasOapi.WithRequestEditorFn(func(ctx context.Context, req *http.Request) error {
+			if req.Method == http.MethodGet {
+				req.Header.Add(xTruenasForceSqlFiltersHeaderName, xTruenasForceSqlFiltersHeaderValue)
+			}
+
+			return nil
+		}),
+	}
 
 	if cfg.APIKey != "" {
 		opts = append(opts, TruenasOapi.WithRequestEditorFn(func(ctx context.Context, req *http.Request) error {
