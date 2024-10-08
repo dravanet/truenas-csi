@@ -445,17 +445,7 @@ func New(cfg config.CSIConfiguration) csi.ControllerServer {
 }
 
 func newTruenasOapiClient(cfg *config.FreeNAS) (*TruenasOapi.Client, error) {
-	opts := []TruenasOapi.ClientOption{
-		TruenasOapi.WithRequestEditorFn(func(ctx context.Context, req *http.Request) error {
-			if req.Method == http.MethodGet {
-				values := req.URL.Query()
-				values.Add("force_sql_filters", "true")
-				req.URL.RawQuery = values.Encode()
-			}
-
-			return nil
-		}),
-	}
+	var opts []TruenasOapi.ClientOption
 
 	if cfg.APIKey != "" {
 		opts = append(opts, TruenasOapi.WithRequestEditorFn(func(ctx context.Context, req *http.Request) error {
