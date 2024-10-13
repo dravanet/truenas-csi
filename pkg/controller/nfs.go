@@ -26,20 +26,31 @@ func (cs *server) createNFSVolume(ctx context.Context, cl *TruenasOapi.Client, n
 	}
 
 	if share == nil {
+		product_type, err := cs.getTruenasProductType(ctx, cl)
+		if err != nil {
+			return nil, err
+		}
+
 		enabled := true
 		maprootuser := "root"
 		maprootgroup := "wheel"
 
-		if _, err = handleNasResponse(cl.PostSharingNfs(ctx, TruenasOapi.PostSharingNfsJSONRequestBody{
+		postBody := TruenasOapi.PostSharingNfsJSONRequestBody{
 			Enabled:      &enabled,
-			Paths:        &paths,
 			Comment:      &reqName,
 			Hosts:        &nfs.AllowedHosts,
 			Networks:     &nfs.AllowedNetworks,
 			MaprootUser:  &maprootuser,
 			MaprootGroup: &maprootgroup,
-		})); err != nil {
-			return
+		}
+		switch product_type {
+		case "SCALE":
+			postBody.Path = &paths[0]
+		default:
+			postBody.Paths = &paths
+		}
+		if _, err = handleNasResponse(cl.PostSharingNfs(ctx, postBody)); err != nil {
+			return nil, err
 		}
 	} else {
 		if len(share.Paths) != 1 {
@@ -81,6 +92,7 @@ type nfsShare struct {
 	ID      *int     `json:"id"`
 	Comment *string  `json:"comment"`
 	Paths   []string `json:"paths"`
+	Path    *string  `json:"path"`
 }
 
 func (cs *server) getNFSShareByComment(ctx context.Context, cl *TruenasOapi.Client, comment string) (share *nfsShare, err error) {
@@ -103,6 +115,10 @@ func (cs *server) getNFSShareByComment(ctx context.Context, cl *TruenasOapi.Clie
 
 	if len(shares) == 1 {
 		share = &shares[0]
+
+		if len(share.Paths) == 0 && share.Path != nil {
+			share.Paths = []string{*share.Path}
+		}
 	}
 
 	return

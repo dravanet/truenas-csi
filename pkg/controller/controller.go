@@ -560,6 +560,18 @@ func (cs *server) removeDataset(ctx context.Context, cl *TruenasOapi.Client, dat
 	return err
 }
 
+func (cs *server) getTruenasProductType(ctx context.Context, cl *TruenasOapi.Client) (product_type string, err error) {
+	body, err := handleNasResponse(cl.GetSystemProductType(ctx))
+	if err != nil {
+		return
+	}
+	if err = json.Unmarshal(body, &product_type); err != nil {
+		err = status.Errorf(codes.Unavailable, "Error parsing response body: %+v", err)
+	}
+
+	return
+}
+
 func handleNasResponse(resp *http.Response, err error) ([]byte, error) {
 	if err != nil {
 		return nil, status.Errorf(codes.Unavailable, "Error during call to Nas: %+v", err)

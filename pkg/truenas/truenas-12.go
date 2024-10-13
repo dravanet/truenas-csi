@@ -4810,6 +4810,7 @@ type SharingNfsCreate0 struct {
 	MaprootGroup *string   `json:"maproot_group"`
 	MaprootUser  *string   `json:"maproot_user"`
 	Networks     *[]string `json:"networks,omitempty"`
+	Path         *string   `json:"path,omitempty"`
 	Paths        *[]string `json:"paths,omitempty"`
 	Quiet        *bool     `json:"quiet,omitempty"`
 	Ro           *bool     `json:"ro,omitempty"`

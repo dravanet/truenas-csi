@@ -27709,6 +27709,9 @@
        "type": "string"
       }
      },
+     "path": {
+      "type": "string"
+     },
      "comment": {
       "type": "string"
      },
