@@ -106,7 +106,7 @@ func (cs *server) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequest
 	// Prepare create request
 	datasetName := datasetFromReqName(req.Name)
 	dataset := path.Join(cfg.Dataset, datasetName)
-	requestBody := TruenasOapi.PoolDatasetCreate0{
+	create := TruenasOapi.PoolDatasetCreate0{
 		Name:     &dataset,
 		Comments: &req.Name,
 	}
@@ -120,14 +120,14 @@ func (cs *server) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequest
 		}
 
 		voltype := TruenasOapi.VOLUME
-		requestBody.Type = &voltype
+		create.Type = &voltype
 
 		volsize := int(capacityBytes)
-		requestBody.Volsize = &volsize
-		requestBody.Sparse = &cfg.Sparse
+		create.Volsize = &volsize
+		create.Sparse = &cfg.Sparse
 
 		if volblocksize := TruenasOapi.PoolDatasetCreate0Volblocksize(cfg.ISCSI.VolBlockSize); volblocksize != "" {
-			requestBody.Volblocksize = &volblocksize
+			create.Volblocksize = &volblocksize
 		}
 
 	case filesystem:
@@ -137,7 +137,7 @@ func (cs *server) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequest
 		}
 
 		voltype := TruenasOapi.FILESYSTEM
-		requestBody.Type = &voltype
+		create.Type = &voltype
 
 		refreservation := int(capacityrange.RequiredBytes)
 		refquota := int(capacityrange.LimitBytes)
@@ -149,16 +149,16 @@ func (cs *server) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequest
 		}
 
 		if refquota > 0 {
-			requestBody.Refquota = &refquota
+			create.Refquota = &refquota
 		}
 		if refreservation > 0 && !cfg.Sparse {
-			requestBody.Refreservation = &refreservation
+			create.Refreservation = &refreservation
 		}
 	default:
 		return nil, status.Error(codes.InvalidArgument, "Invalid VolumeCapabilities requested")
 	}
 
-	createresp, err := cl.PostPoolDataset(ctx, requestBody)
+	createresp, err := cl.PostPoolDataset(ctx, create)
 	if err != nil {
 		return nil, status.Errorf(codes.Unavailable, "failed provisioning %q: %+v", req.Name, err)
 	}
