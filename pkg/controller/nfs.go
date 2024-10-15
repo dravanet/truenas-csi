@@ -35,7 +35,7 @@ func (cs *server) createNFSVolume(ctx context.Context, cl *TruenasOapi.Client, n
 		maprootuser := "root"
 		maprootgroup := "wheel"
 
-		postBody := TruenasOapi.PostSharingNfsJSONRequestBody{
+		postBody := TruenasOapi.SharingNfsCreate0{
 			Enabled:      &enabled,
 			Comment:      &reqName,
 			Hosts:        &nfs.AllowedHosts,

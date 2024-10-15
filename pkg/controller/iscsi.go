@@ -37,7 +37,7 @@ func (cs *server) createISCSIVolume(ctx context.Context, cl *TruenasOapi.Client,
 	rand.Read(sbytes)
 	serial := hex.EncodeToString(sbytes)
 
-	extentcreateresp, err := cl.PostIscsiExtent(ctx, TruenasOapi.PostIscsiExtentJSONRequestBody{
+	extentcreateresp, err := cl.PostIscsiExtent(ctx, TruenasOapi.IscsiExtentCreate0{
 		Name:        &targetName,
 		Type:        &extenttype,
 		Disk:        &zvolpath,
@@ -99,14 +99,14 @@ func (cs *server) createISCSIVolume(ctx context.Context, cl *TruenasOapi.Client,
 
 			auth = &iscsiAuth{
 				ID: tag,
-				PostIscsiAuthJSONRequestBody: TruenasOapi.PostIscsiAuthJSONRequestBody{
+				IscsiAuthCreate0: TruenasOapi.IscsiAuthCreate0{
 					Tag:    &tag,
 					User:   &iscsiUsername,
 					Secret: &iscsiSecret,
 				},
 			}
 
-			if auth.ID, err = handleNasCreateResponse(cl.PostIscsiAuth(ctx, auth.PostIscsiAuthJSONRequestBody)); err != nil {
+			if auth.ID, err = handleNasCreateResponse(cl.PostIscsiAuth(ctx, auth.IscsiAuthCreate0)); err != nil {
 				return
 			}
 		} else {
@@ -116,7 +116,7 @@ func (cs *server) createISCSIVolume(ctx context.Context, cl *TruenasOapi.Client,
 
 		// Update auth group
 		if *auth.Tag == -1 {
-			if _, err = handleNasResponse(cl.PutIscsiAuthIdId(ctx, auth.ID, TruenasOapi.PutIscsiAuthIdIdJSONRequestBody{
+			if _, err = handleNasResponse(cl.PutIscsiAuthIdId(ctx, auth.ID, TruenasOapi.IscsiAuthUpdate1{
 				Tag: &auth.ID,
 			})); err != nil {
 				return
@@ -124,7 +124,7 @@ func (cs *server) createISCSIVolume(ctx context.Context, cl *TruenasOapi.Client,
 		}
 
 		// Create target
-		if targetID, err = handleNasCreateResponse(cl.PostIscsiTarget(ctx, TruenasOapi.PostIscsiTargetJSONRequestBody{
+		if targetID, err = handleNasCreateResponse(cl.PostIscsiTarget(ctx, TruenasOapi.IscsiTargetCreate0{
 			Name: &targetName,
 			Groups: &[]map[string]interface{}{
 				{
@@ -151,7 +151,7 @@ func (cs *server) createISCSIVolume(ctx context.Context, cl *TruenasOapi.Client,
 
 	// Create association
 	lunid := 0
-	assoccreateresponse, err := cl.PostIscsiTargetextent(ctx, TruenasOapi.PostIscsiTargetextentJSONRequestBody{
+	assoccreateresponse, err := cl.PostIscsiTargetextent(ctx, TruenasOapi.IscsiTargetextentCreate0{
 		Target: &targetID,
 		Extent: &extentID,
 		Lunid:  &lunid,
@@ -246,7 +246,7 @@ func (cs *server) deleteISCSIVolume(ctx context.Context, cl *TruenasOapi.Client,
 
 	if extent != nil {
 		// Delete extent
-		if _, err := handleNasResponse(cl.DeleteIscsiExtentIdId(ctx, extent.ID, TruenasOapi.DeleteIscsiExtentIdIdJSONRequestBody{})); err != nil {
+		if _, err := handleNasResponse(cl.DeleteIscsiExtentIdId(ctx, extent.ID, TruenasOapi.IscsiExtentDelete{})); err != nil {
 			return status.Errorf(codes.Unavailable, "Error during call to Nas: %+v", err)
 		}
 	}
@@ -322,7 +322,7 @@ func (cs *server) getISCSITargetByName(ctx context.Context, cl *TruenasOapi.Clie
 
 type iscsiAuth struct {
 	ID int `json:"id"`
-	TruenasOapi.PostIscsiAuthJSONRequestBody
+	TruenasOapi.IscsiAuthCreate0
 }
 
 func (cs *server) getIscsiAuthByTarget(ctx context.Context, cl *TruenasOapi.Client, target *iscsiTarget) (ret *iscsiAuth, err error) {

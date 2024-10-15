@@ -106,7 +106,7 @@ func (cs *server) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequest
 	// Prepare create request
 	datasetName := datasetFromReqName(req.Name)
 	dataset := path.Join(cfg.Dataset, datasetName)
-	requestBody := TruenasOapi.PostPoolDatasetJSONRequestBody{
+	requestBody := TruenasOapi.PoolDatasetCreate0{
 		Name:     &dataset,
 		Comments: &req.Name,
 	}
@@ -203,7 +203,7 @@ func (cs *server) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequest
 	if filesystem && !volume {
 		// Set permissions to world-writable
 		mode := "0777"
-		if _, err = handleNasResponse(cl.PostPoolDatasetIdIdPermission(ctx, dataset, TruenasOapi.PostPoolDatasetIdIdPermissionJSONRequestBody{
+		if _, err = handleNasResponse(cl.PostPoolDatasetIdIdPermission(ctx, dataset, TruenasOapi.PoolDatasetPermission1{
 			Acl:  &[]map[string]interface{}{},
 			Mode: &mode,
 		})); err != nil {
@@ -370,7 +370,7 @@ func (cs *server) ControllerExpandVolume(ctx context.Context, req *csi.Controlle
 			volsize = int(req.CapacityRange.RequiredBytes)
 		}
 
-		if _, err = handleNasResponse(cl.PutPoolDatasetIdId(ctx, di.ID, TruenasOapi.PutPoolDatasetIdIdJSONRequestBody{
+		if _, err = handleNasResponse(cl.PutPoolDatasetIdId(ctx, di.ID, TruenasOapi.PoolDatasetUpdate1{
 			Volsize: &volsize,
 		})); err != nil {
 			return nil, err
@@ -389,14 +389,14 @@ func (cs *server) ControllerExpandVolume(ctx context.Context, req *csi.Controlle
 			refquota = refreservation
 		}
 
-		if _, err = handleNasResponse(cl.PutPoolDatasetIdId(ctx, di.ID, TruenasOapi.PutPoolDatasetIdIdJSONRequestBody{
+		if _, err = handleNasResponse(cl.PutPoolDatasetIdId(ctx, di.ID, TruenasOapi.PoolDatasetUpdate1{
 			Refquota: &refquota,
 		})); err != nil {
 			return nil, err
 		}
 
 		if !nas.GetSparseForRootDataset(path.Dir(dataset)) {
-			if _, err = handleNasResponse(cl.PutPoolDatasetIdId(ctx, di.ID, TruenasOapi.PutPoolDatasetIdIdJSONRequestBody{
+			if _, err = handleNasResponse(cl.PutPoolDatasetIdId(ctx, di.ID, TruenasOapi.PoolDatasetUpdate1{
 				Refreservation: &refreservation,
 			})); err != nil {
 				return nil, err
@@ -554,7 +554,7 @@ func (cs *server) removeDataset(ctx context.Context, cl *TruenasOapi.Client, dat
 	if dp == config.DeletePolicyDelete {
 		recursive := true
 
-		_, err = handleNasResponse(cl.DeletePoolDatasetIdId(ctx, dataset, TruenasOapi.DeletePoolDatasetIdIdJSONRequestBody{Recursive: &recursive}))
+		_, err = handleNasResponse(cl.DeletePoolDatasetIdId(ctx, dataset, TruenasOapi.PoolDatasetDelete1{Recursive: &recursive}))
 	}
 
 	return err
