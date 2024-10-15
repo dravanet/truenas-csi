@@ -200,7 +200,7 @@ func (cs *server) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequest
 	}
 
 	// Dataset ready, set permissions on filesystem
-	if filesystem {
+	if filesystem && !volume {
 		// Set permissions to world-writable
 		mode := "0777"
 		if _, err = handleNasResponse(cl.PostPoolDatasetIdIdPermission(ctx, dataset, TruenasOapi.PostPoolDatasetIdIdPermissionJSONRequestBody{
