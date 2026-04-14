@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"path"
 	"strings"
+	"time"
 
 	"github.com/tv42/zbase32"
 	"google.golang.org/grpc/codes"
@@ -26,6 +27,8 @@ const (
 
 	xTruenasForceSqlFiltersHeaderName  = "X-Truenas-Force-Sql-Filters"
 	xTruenasForceSqlFiltersHeaderValue = "true"
+
+	retainedKey = "RETAINED"
 )
 
 type server struct {
@@ -273,7 +276,7 @@ func (cs *server) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequest
 		}
 
 		if err == nil {
-			err = cs.removeDataset(ctx, cl, di.ID, dp)
+			err = cs.removeDataset(ctx, cl, di, dp)
 		}
 	}
 
@@ -538,15 +541,33 @@ func (cs *server) getDataset(ctx context.Context, cl *TruenasOapi.Client, datase
 	return nil, status.Errorf(codes.Unavailable, "Unexpected result from Nas: %s", string(body))
 }
 
-// removeDataset removes or renames given dataset
-// TODO: implement rename
-func (cs *server) removeDataset(ctx context.Context, cl *TruenasOapi.Client, dataset string, dp config.DeletePolicy) error {
+// removeDataset removes or annotates a given dataset
+func (cs *server) removeDataset(ctx context.Context, cl *TruenasOapi.Client, dataset *datasetInfo, dp config.DeletePolicy) error {
 	var err error
 
-	if dp == config.DeletePolicyDelete {
+	switch dp {
+	case config.DeletePolicyDelete:
 		recursive := true
 
-		_, err = handleNasResponse(cl.DeletePoolDatasetIdId(ctx, dataset, TruenasOapi.PoolDatasetDelete1{Recursive: &recursive}))
+		_, err = handleNasResponse(cl.DeletePoolDatasetIdId(ctx, dataset.ID, TruenasOapi.PoolDatasetDelete1{Recursive: &recursive}))
+
+	case config.DeletePolicyRetain:
+		// For retain policy, annotate the dataset with a retain timestamp
+		if !strings.Contains(dataset.Comments, retainedKey) {
+			timestamp := time.Now().UTC().Format(time.RFC3339)
+			comments := fmt.Sprintf("[%s=%s]", retainedKey, timestamp)
+
+			if dataset.Comments != "" {
+				comments = dataset.Comments + " " + comments
+			}
+
+			_, err = handleNasResponse(cl.PutPoolDatasetIdId(ctx, dataset.ID, TruenasOapi.PoolDatasetUpdate1{
+				Comments: &comments,
+			}))
+		}
+
+	default:
+		err = status.Errorf(codes.InvalidArgument, "Invalid delete policy: %s", dp)
 	}
 
 	return err
