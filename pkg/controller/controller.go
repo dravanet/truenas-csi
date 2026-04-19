@@ -22,9 +22,6 @@ import (
 )
 
 const (
-	NasSelector    = "truenas-csi.dravanet.net/nas"
-	ConfigSelector = "truenas-csi.dravanet.net/config"
-
 	xTruenasForceSqlFiltersHeaderName  = "X-Truenas-Force-Sql-Filters"
 	xTruenasForceSqlFiltersHeaderValue = "true"
 
@@ -52,7 +49,7 @@ func (cs *server) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequest
 		return nil, status.Error(codes.InvalidArgument, "No VolumeCapabilities specified")
 	}
 
-	nasName := req.Parameters[NasSelector]
+	nasName := req.Parameters[config.NasSelector]
 	if nasName == "" {
 		nasName = "default"
 	}
@@ -66,7 +63,7 @@ func (cs *server) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequest
 		return nil, status.Errorf(codes.Unavailable, "creating TruenasOapi client failed for %q", nasName)
 	}
 
-	configName := req.Parameters[ConfigSelector]
+	configName := req.Parameters[config.ConfigSelector]
 	if configName == "" {
 		configName = "default"
 	}

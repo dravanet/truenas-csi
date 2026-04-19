@@ -7,6 +7,11 @@ import (
 // CSIConfiguration
 type CSIConfiguration map[string]*FreeNAS
 
+const (
+	NasSelector    = "truenas-csi.dravanet.net/nas"
+	ConfigSelector = "truenas-csi.dravanet.net/config"
+)
+
 // FreeNAS API access parameters
 type FreeNAS struct {
 	APIUrl string `yaml:"apiurl"`
